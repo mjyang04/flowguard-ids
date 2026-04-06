@@ -78,7 +78,23 @@ Recommended reading order for new contributors:
 ## Requirements
 
 - Python 3.10+
-- CUDA-capable GPU recommended (tested with RTX 3060 + PyTorch CUDA build)
+- CUDA-capable GPU recommended
+
+Tested and recommended versions (RTX 3060 Laptop GPU):
+
+| Package | Minimum | Recommended |
+|---------|---------|-------------|
+| Python | 3.10+ | 3.10.20 |
+| torch | 2.5+ | 2.5.1+cu124 |
+| numpy | 1.26+ | 2.2.6 |
+| pandas | 2.2+ | 2.3.3 |
+| scikit-learn | 1.4+ | 1.7.2 |
+| xgboost | 2.1+ | 3.2.0 |
+| shap | 0.46+ | 0.49.1 |
+| imbalanced-learn | 0.12+ | 0.14.1 |
+| matplotlib | 3.8+ | 3.10.8 |
+| tqdm | 4.66+ | 4.67.3 |
+| pytest | 8.0+ | 9.0.2 |
 
 Install dependencies:
 
