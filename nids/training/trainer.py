@@ -182,7 +182,7 @@ class Trainer:
         for step, (features, labels) in enumerate(iterator, start=1):
             features = features.to(device)
             labels = labels.to(device)
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
 
             if scaler is not None:
                 with torch.autocast(device_type=device.type, enabled=True):
@@ -229,8 +229,8 @@ class Trainer:
             device = next(model.parameters()).device
 
         total_loss = 0.0
-        all_preds: list[int] = []
-        all_labels: list[int] = []
+        all_preds: list[np.ndarray] = []
+        all_labels: list[np.ndarray] = []
 
         iterator = data_loader
         if show_progress and self._show_eval_tqdm():
@@ -247,11 +247,13 @@ class Trainer:
                 disable=not self._show_tqdm(),
             )
 
+        use_amp = self.config.amp and device.type == "cuda"
         with torch.no_grad():
             for features, labels in iterator:
                 features = features.to(device)
                 labels = labels.to(device)
-                outputs = model(features)
+                with torch.autocast(device_type=device.type, enabled=use_amp):
+                    outputs = model(features)
 
                 if criterion is not None:
                     if num_classes == 2:
@@ -261,11 +263,11 @@ class Trainer:
                     total_loss += float(loss.item())
 
                 preds = self._predict_from_logits(outputs, num_classes)
-                all_preds.extend(preds.cpu().numpy().tolist())
-                all_labels.extend(labels.cpu().numpy().tolist())
+                all_preds.append(preds.cpu().numpy())
+                all_labels.append(labels.cpu().numpy())
 
-        y_pred = np.array(all_preds)
-        y_true = np.array(all_labels)
+        y_pred = np.concatenate(all_preds)
+        y_true = np.concatenate(all_labels)
         metrics = compute_nids_metrics(y_true, y_pred)
         loss = total_loss / max(1, len(data_loader)) if criterion is not None else 0.0
         metrics["loss"] = loss
@@ -297,6 +299,7 @@ class Trainer:
                 scheduler_factor=self.config.scheduler_factor,
                 scheduler_patience=self.config.scheduler_patience,
                 min_learning_rate=self.config.min_learning_rate,
+                num_epochs=self.config.num_epochs,
             )
         criterion = self._build_criterion(num_classes, class_weights, device)
         scaler = (

@@ -22,12 +22,14 @@ from torch.utils.data import DataLoader, Dataset
 # Constants (fixed — do not change)
 # ---------------------------------------------------------------------------
 
-# Preprocessed .npz produced by scripts/preprocess_cross_dataset.py
-DATA_FILE = Path("/workspace/data/processed/cross_cicids2017_to_unsw_nb15.npz")
+# Cross-dataset: train on CICIDS2017, test on UNSW-NB15
+CROSS_DATA_FILE = Path("/workspace/data/processed/cross_cicids2017_to_unsw_nb15.npz")
+# Single-dataset: train/val/test all from CICIDS2017
+SINGLE_DATA_FILE = Path("/workspace/data/processed/cicids2017/data.npz")
 
 INPUT_DIM = 55       # unified feature space dimensionality
 NUM_CLASSES = 2      # binary: 0=benign, 1=attack
-EPOCH_BUDGET = 50    # training epochs per experiment
+MAX_EPOCHS = 50      # maximum training epochs per experiment
 BATCH_SIZE = 256     # fixed for fair comparison
 
 
@@ -47,34 +49,50 @@ class NIDSDataset(Dataset):
         return self.features[idx], self.labels[idx]
 
 
-def make_dataloaders(
-    data_file: Path = DATA_FILE,
-    batch_size: int = BATCH_SIZE,
-) -> Tuple[DataLoader, DataLoader, DataLoader, np.ndarray, np.ndarray]:
-    """Load .npz and return (train_loader, val_loader, test_loader, y_train, y_test).
-
-    y_train is returned so train.py can compute class weights.
-    y_test is returned for final evaluation.
-    """
+def _load_npz(data_file: Path) -> dict:
     if not data_file.exists():
         raise FileNotFoundError(
             f"Data file not found: {data_file}\n"
-            "Run from /workspace: python scripts/preprocess_cross_dataset.py --config configs/default.yaml"
+            "Run preprocessing first — see CLAUDE.md for commands."
         )
-    data = np.load(data_file, allow_pickle=True)
-    X_train = data["X_train"].astype(np.float32)
-    X_val   = data["X_val"].astype(np.float32)
-    X_test  = data["X_test"].astype(np.float32)
-    y_train = data["y_train"].astype(np.int64)
-    y_val   = data["y_val"].astype(np.int64)
-    y_test  = data["y_test"].astype(np.int64)
+    return dict(np.load(data_file, allow_pickle=True))
+
+
+def make_dataloaders(
+    batch_size: int = BATCH_SIZE,
+) -> Tuple[DataLoader, DataLoader, DataLoader, DataLoader, np.ndarray]:
+    """Load both datasets and return loaders for training + dual evaluation.
+
+    Returns:
+        train_loader:      CICIDS2017 train split (for training)
+        val_loader:        CICIDS2017 val split (for early stopping)
+        test_single_loader: CICIDS2017 test split (single-dataset eval)
+        test_cross_loader:  UNSW-NB15 test split (cross-dataset eval)
+        y_train:           training labels (for class weight computation)
+    """
+    cross = _load_npz(CROSS_DATA_FILE)
+    single = _load_npz(SINGLE_DATA_FILE)
+
+    X_train = cross["X_train"].astype(np.float32)
+    X_val   = cross["X_val"].astype(np.float32)
+    y_train = cross["y_train"].astype(np.int64)
+    y_val   = cross["y_val"].astype(np.int64)
+
+    # Cross-dataset test: UNSW-NB15
+    X_test_cross = cross["X_test"].astype(np.float32)
+    y_test_cross = cross["y_test"].astype(np.int64)
+
+    # Single-dataset test: CICIDS2017
+    X_test_single = single["X_test"].astype(np.float32)
+    y_test_single = single["y_test"].astype(np.int64)
 
     pin = torch.cuda.is_available()
     kw: dict = dict(batch_size=batch_size, num_workers=0, pin_memory=pin)
-    train_loader = DataLoader(NIDSDataset(X_train, y_train), shuffle=True,  **kw)
-    val_loader   = DataLoader(NIDSDataset(X_val,   y_val),   shuffle=False, **kw)
-    test_loader  = DataLoader(NIDSDataset(X_test,  y_test),  shuffle=False, **kw)
-    return train_loader, val_loader, test_loader, y_train, y_test
+    train_loader       = DataLoader(NIDSDataset(X_train, y_train),           shuffle=True,  **kw)
+    val_loader         = DataLoader(NIDSDataset(X_val, y_val),               shuffle=False, **kw)
+    test_single_loader = DataLoader(NIDSDataset(X_test_single, y_test_single), shuffle=False, **kw)
+    test_cross_loader  = DataLoader(NIDSDataset(X_test_cross, y_test_cross),   shuffle=False, **kw)
+    return train_loader, val_loader, test_single_loader, test_cross_loader, y_train
 
 
 # ---------------------------------------------------------------------------
@@ -87,24 +105,26 @@ def evaluate_nids(
     loader: DataLoader,
     device: torch.device,
     num_classes: int = NUM_CLASSES,
+    use_amp: bool = True,
 ) -> dict:
     """Evaluate model. Primary metric: avg_attack_recall (higher is better)."""
     model.eval()
-    all_preds: list[int] = []
-    all_labels: list[int] = []
+    all_preds: list[np.ndarray] = []
+    all_labels: list[np.ndarray] = []
 
     for features, labels in loader:
         features, labels = features.to(device), labels.to(device)
-        logits = model(features)
+        with torch.autocast(device_type=device.type, enabled=use_amp and device.type == "cuda"):
+            logits = model(features)
         if num_classes == 2:
             preds = (torch.sigmoid(logits) >= 0.5).long()
         else:
             preds = torch.argmax(logits, dim=1)
-        all_preds.extend(preds.cpu().numpy().tolist())
-        all_labels.extend(labels.cpu().numpy().tolist())
+        all_preds.append(preds.cpu().numpy())
+        all_labels.append(labels.cpu().numpy())
 
-    y_pred = np.array(all_preds)
-    y_true = np.array(all_labels)
+    y_pred = np.concatenate(all_preds)
+    y_true = np.concatenate(all_labels)
 
     attack_classes = [c for c in sorted(set(y_true) | set(y_pred)) if c != 0]
     attack_recalls: list[float] = []

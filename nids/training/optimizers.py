@@ -27,6 +27,7 @@ def build_scheduler(
     scheduler_factor: float = 0.5,
     scheduler_patience: int = 2,
     min_learning_rate: float = 1e-6,
+    num_epochs: int = 30,
 ):
     key = name.lower()
     if key == "none":
@@ -40,5 +41,7 @@ def build_scheduler(
             min_lr=min_learning_rate,
         )
     if key == "cosine":
-        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=num_epochs, eta_min=min_learning_rate,
+        )
     raise ValueError(f"Unsupported scheduler: {name}")

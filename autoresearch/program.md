@@ -9,9 +9,12 @@ Autonomous hyperparameter search for CNN-BiLSTM-SE intrusion detection model.
 3. **Read the in-scope files**:
    - `prepare.py` — fixed constants, data loading, evaluation metric. **Do not modify.**
    - `train.py` — the file you modify. Model architecture, optimizer, hyperparameters.
-4. **Verify data exists**: Check that `/workspace/data/processed/cross_cicids2017_to_unsw_nb15.npz` exists.
-   If not, run from inside the container:
+4. **Verify data exists**: Check that both data files exist:
+   - `/workspace/data/processed/cross_cicids2017_to_unsw_nb15.npz` (cross-dataset)
+   - `/workspace/data/processed/cicids2017/data.npz` (single-dataset)
+   If not, run preprocessing:
    ```
+   python scripts/preprocess.py --dataset cicids2017 --config configs/default.yaml
    python scripts/preprocess_cross_dataset.py --config configs/default.yaml
    ```
 5. **Initialize results.tsv**: Create `results.tsv` with just the header row.
@@ -31,11 +34,13 @@ python train.py
 
 **What you CANNOT do:**
 - Modify `prepare.py`. It contains the fixed data loading and evaluation harness.
-- Change `EPOCH_BUDGET`, `INPUT_DIM`, `NUM_CLASSES`, or `DATA_FILE` in `prepare.py`.
+- Change `MAX_EPOCHS`, `INPUT_DIM`, `NUM_CLASSES`, or data file paths in `prepare.py`.
 
-**The goal: maximize `val_avg_attack_recall`** (higher = better).
-This is the primary metric: average recall across all attack classes on the validation set.
-Since EPOCH_BUDGET is fixed at 50 epochs, you don't need to worry about training time.
+**The goal: maximize BOTH test metrics simultaneously:**
+- `test_single_avg_attack_recall` — CICIDS2017 → CICIDS2017 (single-dataset)
+- `test_cross_avg_attack_recall` — CICIDS2017 → UNSW-NB15 (cross-dataset)
+
+Training runs up to MAX_EPOCHS=50 with early stopping (patience=5, delta=1e-4) — it stops early when val_avg_attack_recall stops improving. The best model weights are restored before final evaluation.
 
 **VRAM** is a soft constraint. Keep `peak_vram_mb` reasonable; don't blow it up for marginal gains.
 
@@ -49,22 +54,24 @@ The script prints a summary like:
 
 ```
 ---
-val_avg_attack_recall:    0.982345
-test_avg_attack_recall:   0.971234
-test_false_alarm_rate:    0.001234
-test_attack_precision:    0.984567
-test_accuracy:            0.993456
-training_seconds:         245.1
-total_seconds:            248.3
-peak_vram_mb:             1234.5
-best_epoch:               38
-num_epochs:               50
-num_params_M:             2.345
+val_avg_attack_recall:           0.982345
+test_single_avg_attack_recall:   0.991234
+test_single_false_alarm_rate:    0.000456
+test_single_accuracy:            0.997890
+test_cross_avg_attack_recall:    0.971234
+test_cross_false_alarm_rate:     0.001234
+test_cross_accuracy:             0.993456
+training_seconds:                245.1
+total_seconds:                   248.3
+peak_vram_mb:                    1234.5
+best_epoch:                      38
+num_epochs:                      43
+num_params_M:                    2.345
 ```
 
-Extract the key metric:
+Extract the key metrics:
 ```bash
-grep "^val_avg_attack_recall:" run.log
+grep "^test_single_avg_attack_recall:\|^test_cross_avg_attack_recall:" run.log
 ```
 
 ## Logging results
@@ -72,22 +79,23 @@ grep "^val_avg_attack_recall:" run.log
 Log to `results.tsv` (tab-separated, NOT comma-separated):
 
 ```
-commit	val_avg_attack_recall	memory_gb	status	description
+commit	test_single_recall	test_cross_recall	memory_gb	status	description
 ```
 
 1. git commit hash (short, 7 chars)
-2. val_avg_attack_recall (e.g. 0.982345) — use 0.000000 for crashes
-3. peak memory in GB (peak_vram_mb / 1024, rounded to .1f) — use 0.0 for crashes
-4. status: `keep`, `discard`, or `crash`
-5. short text description of what this experiment tried
+2. test_single_avg_attack_recall (e.g. 0.991234) — use 0.000000 for crashes
+3. test_cross_avg_attack_recall (e.g. 0.971234) — use 0.000000 for crashes
+4. peak memory in GB (peak_vram_mb / 1024, rounded to .1f) — use 0.0 for crashes
+5. status: `keep`, `discard`, or `crash`
+6. short text description of what this experiment tried
 
 Example:
 ```
-commit	val_avg_attack_recall	memory_gb	status	description
-a1b2c3d	0.000000	0.0	keep	baseline
-b2c3d4e	0.984200	1.3	keep	increase LSTM_HIDDEN to 256
-c3d4e5f	0.976000	1.2	discard	remove SE blocks
-d4e5f6g	0.000000	0.0	crash	CONV_CHANNELS=[256,512,512] OOM
+commit	test_single_recall	test_cross_recall	memory_gb	status	description
+a1b2c3d	0.991234	0.971234	1.2	keep	baseline
+b2c3d4e	0.993200	0.984200	1.3	keep	increase LSTM_HIDDEN to 256
+c3d4e5f	0.989000	0.966000	1.2	discard	remove SE blocks
+d4e5f6g	0.000000	0.000000	0.0	crash	CONV_CHANNELS=[256,512,512] OOM
 ```
 
 ## Experiment loop
@@ -98,11 +106,11 @@ LOOP FOREVER:
 2. Edit `train.py` with one experimental idea.
 3. `git commit`
 4. Run: `python train.py > run.log 2>&1`
-5. Read results: `grep "^val_avg_attack_recall:\|^peak_vram_mb:" run.log`
+5. Read results: `grep "^test_single_avg_attack_recall:\|^test_cross_avg_attack_recall:\|^peak_vram_mb:" run.log`
 6. If empty → crash. Run `tail -50 run.log` for traceback. Fix if trivial, else discard.
 7. Record in `results.tsv`.
-8. If `val_avg_attack_recall` **improved** (higher) → keep commit, advance branch.
-9. If equal or worse → `git reset --hard HEAD~1` to revert.
+8. If **BOTH** `test_single_avg_attack_recall` AND `test_cross_avg_attack_recall` improved (higher) → keep commit, advance branch.
+9. If either metric is equal or worse → `git reset --hard HEAD~1` to revert.
 
 **Timeout**: Each experiment should take under 10 minutes. If it exceeds 10 minutes, kill it and discard.
 

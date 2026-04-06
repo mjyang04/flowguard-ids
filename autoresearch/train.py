@@ -3,7 +3,7 @@ FlowGuard IDS autoresearch training script.
 Edit this file freely — it is the only file you should modify.
 
 Baseline: CNN-BiLSTM-SE with default.yaml settings.
-Goal: maximize val_avg_attack_recall.
+Goal: maximize val_avg_attack_recall while keeping both test metrics strong.
 
 Usage (inside Docker container, from /workspace/autoresearch):
     python train.py
@@ -12,6 +12,7 @@ Usage (inside Docker container, from /workspace/autoresearch):
 
 from __future__ import annotations
 
+import copy
 import time
 from typing import List
 
@@ -23,7 +24,7 @@ from sklearn.utils.class_weight import compute_class_weight
 
 from prepare import (
     BATCH_SIZE,
-    EPOCH_BUDGET,
+    MAX_EPOCHS,
     INPUT_DIM,
     NUM_CLASSES,
     evaluate_nids,
@@ -46,11 +47,15 @@ BIDIRECTIONAL: bool = True
 DROPOUT: float     = 0.3
 
 # Optimisation  (baseline matches configs/default.yaml)
-LEARNING_RATE: float  = 2e-3
+LEARNING_RATE: float  = 1e-3
 WEIGHT_DECAY: float   = 1e-4
 GRADIENT_CLIP: float  = 1.0
 USE_AMP: bool         = True
-OPTIMIZER: str        = "adam"      # "adam" | "adamw" | "sgd"
+OPTIMIZER: str        = "adamw"     # "adam" | "adamw" | "sgd"
+
+# Early stopping (mirrors nids.training.callbacks.EarlyStopping)
+EARLY_STOPPING_PATIENCE: int   = 5
+EARLY_STOPPING_DELTA: float    = 1e-4
 
 # Scheduler
 SCHEDULER: str          = "plateau"  # "plateau" | "cosine" | "none"
@@ -168,10 +173,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
 
 bs = BATCH_SIZE_OVERRIDE or BATCH_SIZE
-train_loader, val_loader, test_loader, y_train_arr, y_test_arr = make_dataloaders(batch_size=bs)
+train_loader, val_loader, test_single_loader, test_cross_loader, y_train_arr = (
+    make_dataloaders(batch_size=bs)
+)
 print(f"Train: {len(train_loader.dataset):,}  "
       f"Val: {len(val_loader.dataset):,}  "
-      f"Test: {len(test_loader.dataset):,}")
+      f"Test(single): {len(test_single_loader.dataset):,}  "
+      f"Test(cross): {len(test_cross_loader.dataset):,}")
 
 model = CNNBiLSTMSE(
     input_dim=INPUT_DIM,
@@ -225,7 +233,7 @@ if SCHEDULER == "plateau":
     )
 elif SCHEDULER == "cosine":
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=EPOCH_BUDGET, eta_min=MIN_LR,
+        optimizer, T_max=MAX_EPOCHS, eta_min=MIN_LR,
     )
 
 scaler = torch.amp.GradScaler("cuda") if USE_AMP and device.type == "cuda" else None
@@ -240,16 +248,18 @@ print(f"Optimizer: {OPTIMIZER}  lr={LEARNING_RATE}  wd={WEIGHT_DECAY}  "
 t_train_start = time.time()
 best_val_recall = 0.0
 best_epoch = 0
+best_state_dict = None
 total_train_secs = 0.0
+es_counter = 0
 
-for epoch in range(1, EPOCH_BUDGET + 1):
+for epoch in range(1, MAX_EPOCHS + 1):
     model.train()
     epoch_loss = 0.0
     t0 = time.time()
 
     for features, labels in train_loader:
         features, labels = features.to(device), labels.to(device)
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
 
         if scaler is not None:
             with torch.autocast(device_type="cuda"):
@@ -273,7 +283,7 @@ for epoch in range(1, EPOCH_BUDGET + 1):
     total_train_secs += dt
     avg_loss = epoch_loss / max(1, len(train_loader))
 
-    val_metrics = evaluate_nids(model, val_loader, device, NUM_CLASSES)
+    val_metrics = evaluate_nids(model, val_loader, device, NUM_CLASSES, use_amp=USE_AMP)
     val_recall = val_metrics["avg_attack_recall"]
 
     if scheduler is not None:
@@ -282,37 +292,52 @@ for epoch in range(1, EPOCH_BUDGET + 1):
         else:
             scheduler.step()
 
-    if val_recall > best_val_recall:
+    if val_recall > best_val_recall + EARLY_STOPPING_DELTA:
         best_val_recall = val_recall
         best_epoch = epoch
+        best_state_dict = copy.deepcopy(model.state_dict())
+        es_counter = 0
+    else:
+        es_counter += 1
 
     lr_now = optimizer.param_groups[0]["lr"]
     print(
-        f"\repoch {epoch:03d}/{EPOCH_BUDGET} | loss={avg_loss:.4f} | "
+        f"\repoch {epoch:03d}/{MAX_EPOCHS} | loss={avg_loss:.4f} | "
         f"val_recall={val_recall:.4f} | best={best_val_recall:.4f}(ep{best_epoch}) | "
-        f"lr={lr_now:.1e} | dt={dt:.1f}s    ",
+        f"lr={lr_now:.1e} | es={es_counter}/{EARLY_STOPPING_PATIENCE} | dt={dt:.1f}s    ",
         end="", flush=True,
     )
+
+    if es_counter >= EARLY_STOPPING_PATIENCE:
+        print(f"\nEarly stopping at epoch {epoch}")
+        break
 
 print()
 
 # ---------------------------------------------------------------------------
-# Final test evaluation
+# Restore best model and evaluate on both test sets
 # ---------------------------------------------------------------------------
 
-test_metrics = evaluate_nids(model, test_loader, device, NUM_CLASSES)
+if best_state_dict is not None:
+    model.load_state_dict(best_state_dict)
+    print(f"Restored best model from epoch {best_epoch}")
+
+test_single = evaluate_nids(model, test_single_loader, device, NUM_CLASSES, use_amp=USE_AMP)
+test_cross  = evaluate_nids(model, test_cross_loader, device, NUM_CLASSES, use_amp=USE_AMP)
 peak_vram_mb = torch.cuda.max_memory_allocated() / 1024 / 1024 if device.type == "cuda" else 0.0
 t_end = time.time()
 
 print("---")
-print(f"val_avg_attack_recall:    {best_val_recall:.6f}")
-print(f"test_avg_attack_recall:   {test_metrics['avg_attack_recall']:.6f}")
-print(f"test_false_alarm_rate:    {test_metrics['benign_false_alarm_rate']:.6f}")
-print(f"test_attack_precision:    {test_metrics['attack_macro_precision']:.6f}")
-print(f"test_accuracy:            {test_metrics['accuracy']:.6f}")
-print(f"training_seconds:         {total_train_secs:.1f}")
-print(f"total_seconds:            {t_end - t_start:.1f}")
-print(f"peak_vram_mb:             {peak_vram_mb:.1f}")
-print(f"best_epoch:               {best_epoch}")
-print(f"num_epochs:               {EPOCH_BUDGET}")
-print(f"num_params_M:             {num_params / 1e6:.3f}")
+print(f"val_avg_attack_recall:           {best_val_recall:.6f}")
+print(f"test_single_avg_attack_recall:   {test_single['avg_attack_recall']:.6f}")
+print(f"test_single_false_alarm_rate:    {test_single['benign_false_alarm_rate']:.6f}")
+print(f"test_single_accuracy:            {test_single['accuracy']:.6f}")
+print(f"test_cross_avg_attack_recall:    {test_cross['avg_attack_recall']:.6f}")
+print(f"test_cross_false_alarm_rate:     {test_cross['benign_false_alarm_rate']:.6f}")
+print(f"test_cross_accuracy:             {test_cross['accuracy']:.6f}")
+print(f"training_seconds:                {total_train_secs:.1f}")
+print(f"total_seconds:                   {t_end - t_start:.1f}")
+print(f"peak_vram_mb:                    {peak_vram_mb:.1f}")
+print(f"best_epoch:                      {best_epoch}")
+print(f"num_epochs:                      {epoch}")
+print(f"num_params_M:                    {num_params / 1e6:.3f}")
