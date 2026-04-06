@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.idea/
+.claude/
+
+artifacts/
+data/
+
+*.pt
+*.onnx
+*.npy
+*.npz
