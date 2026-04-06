@@ -9,12 +9,8 @@ __pycache__/
 
 artifacts/
 data/
-!nids/data/
 
 *.pt
 *.onnx
 *.npy
 *.npz
-CLAUDE.md
-environment.yml
-*.egg-info/

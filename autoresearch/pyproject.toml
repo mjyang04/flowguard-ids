@@ -1,0 +1,13 @@
+[project]
+name = "autoresearch-nids"
+version = "0.1.0"
+description = "Autonomous hyperparameter search for FlowGuard IDS"
+readme = "README.md"
+requires-python = ">=3.10"
+# All deps are pre-installed in the flowguard-ids Docker image.
+# This file is kept for reference; run directly with: python train.py
+dependencies = [
+    "numpy>=2.2.6",
+    "scikit-learn>=1.7.2",
+    "torch>=2.5.1",
+]
