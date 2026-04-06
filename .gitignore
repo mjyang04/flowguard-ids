@@ -16,3 +16,5 @@ data/
 *.npz
 CLAUDE.md
 autoresearch/
+environment.yml
+*.egg-info/
