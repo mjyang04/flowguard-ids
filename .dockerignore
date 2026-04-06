@@ -1,0 +1,10 @@
+data/raw/
+data/processed/
+data/shap_samples/
+artifacts/
+*.pt
+*.pkl
+*.egg-info/
+__pycache__/
+.git/
+.pytest_cache/
