@@ -1,8 +1,7 @@
 """
 Fixed data loading and evaluation for FlowGuard IDS autoresearch.
 
-This file is READ-ONLY — do NOT modify it.
-It defines the fixed evaluation metric, dataloaders, and constants
+This file defines the shared v2 evaluation metric, dataloaders, and constants
 that train.py must use.
 
 Usage (inside Docker container, from /workspace/autoresearch):
@@ -12,11 +11,18 @@ Usage (inside Docker container, from /workspace/autoresearch):
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 from typing import Tuple
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from nids.evaluation.metrics import compute_nids_metrics
 
 # ---------------------------------------------------------------------------
 # Constants (fixed — do not change)
@@ -96,7 +102,7 @@ def make_dataloaders(
 
 
 # ---------------------------------------------------------------------------
-# Fixed evaluation metric — DO NOT CHANGE
+# Shared evaluation metric
 # ---------------------------------------------------------------------------
 
 @torch.no_grad()
@@ -107,17 +113,20 @@ def evaluate_nids(
     num_classes: int = NUM_CLASSES,
     use_amp: bool = True,
 ) -> dict:
-    """Evaluate model. Primary metric: avg_attack_recall (higher is better)."""
+    """Evaluate model with the shared v2 imbalance-aware metrics."""
     model.eval()
     all_preds: list[np.ndarray] = []
     all_labels: list[np.ndarray] = []
+    all_scores: list[np.ndarray] = []
 
     for features, labels in loader:
         features, labels = features.to(device), labels.to(device)
         with torch.autocast(device_type=device.type, enabled=use_amp and device.type == "cuda"):
             logits = model(features)
         if num_classes == 2:
-            preds = (torch.sigmoid(logits) >= 0.5).long()
+            probs = torch.sigmoid(logits).reshape(-1)
+            preds = (probs >= 0.5).long()
+            all_scores.append(probs.cpu().numpy())
         else:
             preds = torch.argmax(logits, dim=1)
         all_preds.append(preds.cpu().numpy())
@@ -125,24 +134,5 @@ def evaluate_nids(
 
     y_pred = np.concatenate(all_preds)
     y_true = np.concatenate(all_labels)
-
-    attack_classes = [c for c in sorted(set(y_true) | set(y_pred)) if c != 0]
-    attack_recalls: list[float] = []
-    attack_precisions: list[float] = []
-    for cls in attack_classes:
-        tp = int(((y_true == cls) & (y_pred == cls)).sum())
-        fn = int(((y_true == cls) & (y_pred != cls)).sum())
-        fp = int(((y_true != cls) & (y_pred == cls)).sum())
-        attack_recalls.append(tp / max(1, tp + fn))
-        attack_precisions.append(tp / max(1, tp + fp))
-
-    n_benign = max(1, int((y_true == 0).sum()))
-    false_alarms = int(((y_true == 0) & (y_pred != 0)).sum())
-
-    return {
-        "avg_attack_recall":       float(np.mean(attack_recalls))    if attack_recalls else 0.0,
-        "attack_macro_precision":  float(np.mean(attack_precisions)) if attack_precisions else 0.0,
-        "benign_false_alarm_rate": false_alarms / n_benign,
-        "attack_miss_rate":        1.0 - (float(np.mean(attack_recalls)) if attack_recalls else 0.0),
-        "accuracy":                float((y_pred == y_true).mean()),
-    }
+    y_score = np.concatenate(all_scores) if all_scores else None
+    return compute_nids_metrics(y_true, y_pred, y_score=y_score)

@@ -47,17 +47,25 @@ def plot_nids_key_metrics(metrics: dict, output_path: str | Path) -> None:
         "attack_macro_precision",
         "benign_false_alarm_rate",
         "attack_miss_rate",
+        "pr_auc",
+        "roc_auc",
     ]
     labels = [
         "Attack Recall",
         "Attack Precision",
         "False Alarm Rate",
         "Attack Miss Rate",
+        "PR-AUC",
+        "ROC-AUC",
     ]
     values = [float(metrics.get(k, 0.0)) for k in keys]
 
-    fig, ax = plt.subplots(figsize=(8, 4))
-    bars = ax.bar(labels, values, color=["#1f77b4", "#2ca02c", "#ff7f0e", "#d62728"])
+    fig, ax = plt.subplots(figsize=(11, 4))
+    bars = ax.bar(
+        labels,
+        values,
+        color=["#1f77b4", "#2ca02c", "#ff7f0e", "#d62728", "#9467bd", "#8c564b"],
+    )
     ax.set_ylim(0.0, 1.0)
     ax.set_ylabel("Score")
     ax.set_title("NIDS Key Metrics")

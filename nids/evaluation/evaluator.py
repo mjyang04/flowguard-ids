@@ -18,6 +18,7 @@ def evaluate_model(
     total_loss = 0.0
     all_preds: list[int] = []
     all_labels: list[int] = []
+    all_scores: list[np.ndarray] = []
 
     with torch.no_grad():
         for features, labels in data_loader:
@@ -34,14 +35,17 @@ def evaluate_model(
 
             if num_classes == 2:
                 probs = torch.sigmoid(outputs)
+                probs = probs.reshape(-1)
                 preds = (probs >= 0.5).long()
+                all_scores.extend(probs.cpu().numpy().tolist())
             else:
                 preds = torch.argmax(outputs, dim=1)
 
             all_preds.extend(preds.cpu().numpy().tolist())
             all_labels.extend(labels.cpu().numpy().tolist())
 
-    metrics = compute_nids_metrics(np.array(all_labels), np.array(all_preds))
+    y_score = np.array(all_scores, dtype=np.float32) if all_scores else None
+    metrics = compute_nids_metrics(np.array(all_labels), np.array(all_preds), y_score=y_score)
     if criterion is not None and len(data_loader) > 0:
         metrics["loss"] = total_loss / len(data_loader)
     return metrics
