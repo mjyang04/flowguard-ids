@@ -278,7 +278,7 @@ class Trainer:
         y_score = np.concatenate(all_scores) if all_scores else None
         if y_score is not None and np.isnan(y_score).any():
             nan_count = int(np.isnan(y_score).sum())
-            logger.warning("NaN detected in model scores | count=%d/%d", nan_count, len(y_score))
+            self.logger.warning("NaN detected in model scores | count=%d/%d", nan_count, len(y_score))
         metrics = compute_nids_metrics(y_true, y_pred, y_score=y_score)
         loss = total_loss / max(1, len(data_loader)) if criterion is not None else 0.0
         metrics["loss"] = loss
