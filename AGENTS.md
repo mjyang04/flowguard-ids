@@ -6,8 +6,8 @@ This file adapts [CLAUDE.md](/Users/mj/flowguard-ids/CLAUDE.md) into project ins
 
 Graduation design project: a lightweight network intrusion detection system using CNN-BiLSTM-SE, SHAP explainability, and cross-dataset generalization on CICIDS2017 and UNSW-NB15.
 
-- Python: 3.12
-- PyTorch: 2.5.1+cu128 (CUDA 12.8, cuDNN 9)
+- Python: 3.12.3 (miniconda)
+- PyTorch: 2.8.0+cu128 (CUDA 12.8)
 - Main package: `nids/`
 - Config source: `configs/default.yaml`
 - Primary execution surface: `scripts/`
@@ -59,50 +59,39 @@ pytest -q
 
 - Edit code locally on the Mac workspace.
 - Run local tests first whenever possible. Default verification is `pytest -q`.
-- Use the Linux GPU server (RTX 5090) for GPU, CUDA, Docker, or full-dataset work that cannot run locally.
+- Use the Linux GPU server (RTX 5090) for GPU, CUDA, or full-dataset work that cannot run locally.
 - Raw datasets need to be transferred from Windows or re-preprocessed.
 
 Standard remote flow:
 
 1. Finish local edits and push: `git push`.
 2. Pull on GPU server: `ssh -p 46526 root@connect.westd.seetacloud.com "cd /root/autodl-tmp/flowguard-ids && git pull"`.
-3. Run inside Docker container.
+3. Set PATH and run: `export PATH=/root/miniconda3/bin:$PATH && python scripts/train.py ...`
 
 ## Remote Training Machine (Primary - Linux GPU)
 
 - SSH target: `ssh -p 46526 root@connect.westd.seetacloud.com`
 - Project path: `/root/autodl-tmp/flowguard-ids`
+- Python path: `/root/miniconda3/bin/python`
 - OS: Ubuntu 22.04.5 LTS
 - GPU: NVIDIA GeForce RTX 5090, 32GB VRAM
 - CUDA: 13.0, Driver 580.76.05
-
-Setup steps (first time):
-```bash
-# Install Docker
-ssh -p 46526 root@connect.westd.seetacloud.com
-apt-get update && apt-get install -y docker.io docker-compose
-systemctl start docker && systemctl enable docker
-
-# Install NVIDIA Container Toolkit
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-curl -fsSL https://nvidia.github.io/nvidia-docker/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | tee /etc/apt/sources.list.d/nvidia-docker.list
-apt-get update && apt-get install -y nvidia-container-toolkit
-nvidia-ctk runtime configure --runtime=docker
-systemctl restart docker
-
-# Build image
-cd /root/autodl-tmp/flowguard-ids && docker build -t flowguard-ids:latest .
-
-# Start persistent container
-docker run -d --gpus all --name flowguard -v /root/autodl-tmp/flowguard-ids:/workspace flowguard-ids bash -c 'while true; do sleep 3600; done'
-```
+- Miniconda with all dependencies pre-installed (PyTorch 2.8.0+cu128)
 
 Useful commands:
 ```bash
-ssh -p 46526 root@connect.westd.seetacloud.com "cd /root/autodl-tmp/flowguard-ids && git pull"
-docker exec -it flowguard bash
-docker exec flowguard python train.py
+# Run tests
+ssh -p 46526 root@connect.westd.seetacloud.com "export PATH=/root/miniconda3/bin:\$PATH && cd /root/autodl-tmp/flowguard-ids && pytest -q"
+
+# Start training in tmux (ALWAYS use tmux for training)
+ssh -p 46526 root@connect.westd.seetacloud.com "export PATH=/root/miniconda3/bin:\$PATH && cd /root/autodl-tmp/flowguard-ids && tmux new-session -d -s train 'python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --one-click'"
+
+# Attach to training session to view progress
+ssh -p 46526 root@connect.westd.seetacloud.com "tmux attach -t train"
+
+# Ctrl+B then D to detach
+# tmux ls - list sessions
+# tmux kill-session -t train - terminate
 ```
 
 ## Remote Training Machine (Backup - Windows)

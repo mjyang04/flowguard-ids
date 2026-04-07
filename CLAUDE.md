@@ -4,10 +4,10 @@
 
 Graduation design project: a lightweight network intrusion detection system using **CNN-BiLSTM-SE + SHAP explainability + cross-dataset generalization** on CICIDS2017 and UNSW-NB15.
 
-- **Python**: 3.12
-- **PyTorch**: 2.5.1+cu128 (CUDA 12.8, cuDNN 9)
-- **GPU**: NVIDIA GeForce RTX 5090 (32GB VRAM) — primary
-- **Core deps**: numpy 2.2.6, pandas 2.3.3, scikit-learn 1.7.2, xgboost 3.2.0, shap 0.49.1, imbalanced-learn 0.14.1, matplotlib 3.10.8, tqdm 4.67.3, PyYAML 6.0.3, joblib 1.5.3, pytest 9.0.2
+- **Python**: 3.12.3 (miniconda)
+- **PyTorch**: 2.8.0+cu128 (CUDA 12.8)
+- **GPU**: NVIDIA GeForce RTX 5090 (32GB VRAM)
+- **Core deps**: numpy 2.3.2, pandas 3.0.2, scikit-learn 1.8.0, xgboost 3.2.0, shap 0.51.0, imbalanced-learn 0.14.1, matplotlib 3.10.5, tqdm 4.66.2, PyYAML 6.0.2, joblib 1.5.3, pytest 9.0.2
 - **Package**: `nids/` (installed via `setup.py`)
 - **Config**: YAML-driven (`configs/default.yaml`)
 
@@ -18,38 +18,37 @@ SSH access: `ssh -p 46526 root@connect.westd.seetacloud.com`
 - **OS**: Ubuntu 22.04.5 LTS
 - **GPU**: NVIDIA GeForce RTX 5090, 32GB VRAM
 - **CUDA**: 13.0, Driver 580.76.05
-- **Storage**: 3x NVMe SSD RAID5, ~14TB (mounted at `/`)
-- **Docker**: 未安装（需先安装）
-- **Python**: 未安装（需先安装）
+- **Storage**: 3x NVMe SSD RAID5, ~14TB
+- **Python**: miniconda (3.12.3, 已配置所有依赖)
+- **Docker**: 未安装
 
 ### 远程操作规范
 
-- 项目路径：`/root/autodl-tmp/flowguard-ids`（已克隆）
+- 项目路径：`/root/autodl-tmp/flowguard-ids`
+- Python 路径：`/root/miniconda3/bin/python`
 - 代码同步：`ssh -p 46526 root@connect.westd.seetacloud.com "cd /root/autodl-tmp/flowguard-ids && git pull"`
-- **安装 Docker（首次）：**
+- 运行训练（**必须使用 tmux**）：
   ```bash
+  # 创建 tmux session 运行训练
   ssh -p 46526 root@connect.westd.seetacloud.com
-  apt-get update && apt-get install -y docker.io docker-compose
-  systemctl start docker && systemctl enable docker
-  # 安装 NVIDIA Container Toolkit
-  distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-  curl -fsSL https://nvidia.github.io/nvidia-docker/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | tee /etc/apt/sources.list.d/nvidia-docker.list
-  apt-get update && apt-get install -y nvidia-container-toolkit
-  nvidia-ctk runtime configure --runtime=docker
-  systemctl restart docker
+  export PATH=/root/miniconda3/bin:$PATH
+  cd /root/autodl-tmp/flowguard-ids
+  tmux new-session -d -s train 'python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --one-click'
+
+  # 查看训练进度
+  tmux attach -t train
+
+  # 断开会话保持运行：Ctrl+B 然后按 D
+  # 查看 session 列表：tmux ls
+  # 终止 session：tmux kill-session -t train
   ```
-- 构建镜像：`ssh -p 46526 root@connect.westd.seetacloud.com "cd /root/autodl-tmp/flowguard-ids && docker build -t flowguard-ids:latest ."`
-- 运行容器：`docker run -d --gpus all --name flowguard -v /root/autodl-tmp/flowguard-ids:/workspace flowguard-ids bash -c 'while true; do sleep 3600; done'`
-- 进入容器：`docker exec -it flowguard bash`
-- 长时间训练：`docker exec flowguard bash -c 'cd /workspace/autoresearch && python train.py'`
+- 运行测试：`ssh -p 46526 root@connect.westd.seetacloud.com "export PATH=/root/miniconda3/bin:\$PATH && cd /root/autodl-tmp/flowguard-ids && pytest -q"`
 - **训练/测试前，必须先检查代码是否最新**
 
 ### 传输数据（从 Windows）
 
-在 Windows 上打包后传输：
 ```bash
-# Windows 上
+# Windows 上打包
 docker run --rm -v E:\flowguard-ids:/data alpine tar -cvf - -C /data data/raw data/processed | ssh -p 46526 root@connect.westd.seetacloud.com "cd /root/autodl-tmp/flowguard-ids && tar -xvf -"
 ```
 
@@ -139,14 +138,20 @@ pytest -q
 ## Development Workflow
 
 - **代码编辑**：本地 Mac
-- **测试**：优先本地 conda 环境；本地无法满足的（CUDA、GPU训练、完整数据集）用 Linux GPU 服务器
-- **训练**：Linux GPU 服务器 (RTX 5090)
+- **测试**：本地 conda 环境或 Linux GPU 服务器
+- **训练**：Linux GPU 服务器 (RTX 5090) — conda 环境直接运行
 
 **执行 GPU 服务器任务的标准流程：**
 1. 本地完成代码修改，先跑本地可运行的测试（`pytest -q`）
 2. `git push`
-3. SSH 到 GPU 服务器 `ssh -p 46526 root@connect.westd.seetacloud.com` 执行 `git pull`
-4. 在 Docker 容器中执行训练
+3. SSH 到 GPU 服务器执行 `git pull`
+4. 设置 PATH 并运行训练：
+   ```bash
+   ssh -p 46526 root@connect.westd.seetacloud.com
+   export PATH=/root/miniconda3/bin:$PATH
+   cd /root/autodl-tmp/flowguard-ids
+   python scripts/train.py ...
+   ```
 
 Raw data（CICIDS2017、UNSW-NB15）需从 Windows 机器传输或重新下载。
 
