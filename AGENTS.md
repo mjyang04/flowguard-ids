@@ -6,11 +6,12 @@ This file adapts [CLAUDE.md](/Users/mj/flowguard-ids/CLAUDE.md) into project ins
 
 Graduation design project: a lightweight network intrusion detection system using CNN-BiLSTM-SE, SHAP explainability, and cross-dataset generalization on CICIDS2017 and UNSW-NB15.
 
-- Python: 3.10.20
-- PyTorch: 2.5.1+cu124
+- Python: 3.12
+- PyTorch: 2.5.1+cu128 (CUDA 12.8, cuDNN 9)
 - Main package: `nids/`
 - Config source: `configs/default.yaml`
 - Primary execution surface: `scripts/`
+- Primary GPU: NVIDIA GeForce RTX 5090 (32GB VRAM)
 
 ## Repository Map
 
@@ -58,18 +59,53 @@ pytest -q
 
 - Edit code locally on the Mac workspace.
 - Run local tests first whenever possible. Default verification is `pytest -q`.
-- Use the Windows machine only for GPU, CUDA, Docker, or full-dataset work that cannot run locally.
-- Ask the user before starting remote Windows work.
-- Raw datasets already exist on the Windows machine under `E:\flowguard-ids\data\raw\`. Do not re-download them.
+- Use the Linux GPU server (RTX 5090) for GPU, CUDA, Docker, or full-dataset work that cannot run locally.
+- Raw datasets need to be transferred from Windows or re-preprocessed.
 
 Standard remote flow:
 
-1. Finish local edits.
-2. Run the local checks that are feasible.
-3. Ask the user before remote execution.
-4. After confirmation, push local code, pull on Windows, then run inside Docker.
+1. Finish local edits and push: `git push`.
+2. Pull on GPU server: `ssh -p 46526 root@connect.westd.seetacloud.com "cd /root/autodl-tmp/flowguard-ids && git pull"`.
+3. Run inside Docker container.
 
-## Remote Training Machine
+## Remote Training Machine (Primary - Linux GPU)
+
+- SSH target: `ssh -p 46526 root@connect.westd.seetacloud.com`
+- Project path: `/root/autodl-tmp/flowguard-ids`
+- OS: Ubuntu 22.04.5 LTS
+- GPU: NVIDIA GeForce RTX 5090, 32GB VRAM
+- CUDA: 13.0, Driver 580.76.05
+
+Setup steps (first time):
+```bash
+# Install Docker
+ssh -p 46526 root@connect.westd.seetacloud.com
+apt-get update && apt-get install -y docker.io docker-compose
+systemctl start docker && systemctl enable docker
+
+# Install NVIDIA Container Toolkit
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -fsSL https://nvidia.github.io/nvidia-docker/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | tee /etc/apt/sources.list.d/nvidia-docker.list
+apt-get update && apt-get install -y nvidia-container-toolkit
+nvidia-ctk runtime configure --runtime=docker
+systemctl restart docker
+
+# Build image
+cd /root/autodl-tmp/flowguard-ids && docker build -t flowguard-ids:latest .
+
+# Start persistent container
+docker run -d --gpus all --name flowguard -v /root/autodl-tmp/flowguard-ids:/workspace flowguard-ids bash -c 'while true; do sleep 3600; done'
+```
+
+Useful commands:
+```bash
+ssh -p 46526 root@connect.westd.seetacloud.com "cd /root/autodl-tmp/flowguard-ids && git pull"
+docker exec -it flowguard bash
+docker exec flowguard python train.py
+```
+
+## Remote Training Machine (Backup - Windows)
 
 - SSH target: `ssh Lenovo@10.70.72.246`
 - Project path: `E:\flowguard-ids`
@@ -82,27 +118,20 @@ Before any SSH session, verify the host:
 ~/.claude/scripts/find-windows.sh 10.70.72.246
 ```
 
-- If the script returns the IP, continue.
-- If it returns `FAIL`, stop and ask the user for the current IP before doing anything remote.
-
 Useful remote commands:
-
 ```bash
 ssh Lenovo@<verified-ip> "<command>"
 ssh Lenovo@<verified-ip> "git -C E:\flowguard-ids fetch && git -C E:\flowguard-ids status -uno"
 ssh Lenovo@<verified-ip> "git -C E:\flowguard-ids pull"
 docker exec -it flowguard bash
 docker run --rm --gpus all -v E:\flowguard-ids:/workspace flowguard-ids <command>
-docker run -d --gpus all -v E:\flowguard-ids:/workspace --name <name> flowguard-ids tmux new-session -d -s train '<cmd>'
 ```
 
 Remote execution rules:
-
-- Check whether the Windows checkout is up to date before training or evaluation.
+- Check whether the remote checkout is up to date before training or evaluation.
 - If `git status -uno` reports the branch is behind, pull first.
-- If Docker daemon is down, tell the user to open Docker Desktop manually.
+- If Docker daemon is down on Windows, tell the user to open Docker Desktop manually.
 - `docker build` must be run on the Windows local desktop session, not over SSH.
-- Notify the user when long-running training finishes.
 
 ## Configuration Rules
 
