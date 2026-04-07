@@ -42,7 +42,7 @@ training:
   early_stopping_delta: 0.0001
   gradient_clip: 1.0
   amp: true
-  selection_metric: avg_attack_recall
+  selection_metric: recall_at_far_1pct
   use_tqdm: true
   show_eval_tqdm: false
 

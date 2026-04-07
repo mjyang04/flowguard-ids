@@ -202,6 +202,8 @@ def format_metrics(prefix: str, metrics: dict) -> list[str]:
         f"{prefix}_roc_auc:             {float(metrics.get('roc_auc', 0.0)):.6f}",
         f"{prefix}_recall_at_far_1pct:  {float(metrics.get('recall_at_far_1pct', 0.0)):.6f}",
         f"{prefix}_recall_at_far_5pct:  {float(metrics.get('recall_at_far_5pct', 0.0)):.6f}",
+        f"{prefix}_best_f1:             {float(metrics.get('best_f1', 0.0)):.6f}",
+        f"{prefix}_best_f1_threshold:   {float(metrics.get('best_f1_threshold', 1.0)):.6f}",
         f"{prefix}_false_alarm_rate:    {float(metrics.get('benign_false_alarm_rate', 0.0)):.6f}",
         f"{prefix}_accuracy:            {float(metrics.get('accuracy', 0.0)):.6f}",
     ]
@@ -329,7 +331,7 @@ for epoch in range(1, MAX_EPOCHS + 1):
 
     if scheduler is not None:
         if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            scheduler.step(val_pr_auc)
+            scheduler.step(val_r1)
         else:
             scheduler.step()
 

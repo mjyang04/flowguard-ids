@@ -38,64 +38,70 @@ def _compute_binary_score_metrics(
         return {}
 
     scores = np.clip(scores, 0.0, 1.0)
-    thresholds = np.unique(np.concatenate(([1.0], scores)))
-    thresholds = np.sort(thresholds)[::-1]
 
-    sweep_records: list[dict] = []
-    best_f1_record: dict | None = None
-    best_f1_key: tuple[float, float, float, float] | None = None
-    for threshold in thresholds:
-        y_pred_bin = (scores >= threshold).astype(np.int64)
-        tp = int(((y_true_bin == 1) & (y_pred_bin == 1)).sum())
-        fp = int(((y_true_bin == 0) & (y_pred_bin == 1)).sum())
-        fn = int(((y_true_bin == 1) & (y_pred_bin == 0)).sum())
-        tn = int(((y_true_bin == 0) & (y_pred_bin == 0)).sum())
+    # Vectorized threshold sweep via sorted cumulative sums.
+    # Descending sort lets us compute TP/FP at every unique threshold
+    # in O(n log n) instead of O(n * #thresholds).
+    total_pos = int(y_true_bin.sum())
+    total_neg = len(y_true_bin) - total_pos
 
-        recall = float(tp / max(1, tp + fn))
-        precision = float(tp / max(1, tp + fp))
-        false_alarm_rate = float(fp / max(1, fp + tn))
-        f1 = float(0.0 if precision + recall == 0.0 else 2.0 * precision * recall / (precision + recall))
+    desc_idx = np.argsort(-scores, kind="stable")
+    sorted_labels = y_true_bin[desc_idx]
+    sorted_scores = scores[desc_idx]
 
-        record = {
-            "threshold": float(threshold),
-            "recall": recall,
-            "precision": precision,
-            "f1": f1,
-            "false_alarm_rate": false_alarm_rate,
-        }
-        sweep_records.append(record)
+    tp_cum = np.cumsum(sorted_labels)
+    fp_cum = np.cumsum(1 - sorted_labels)
 
-        record_key = (f1, recall, -false_alarm_rate, float(threshold))
-        if best_f1_key is None or record_key > best_f1_key:
-            best_f1_key = record_key
-            best_f1_record = record
+    # For threshold t, we predict positive for all samples with score >= t.
+    # When multiple samples share the same score they are all predicted
+    # positive together, so we must take the *last* position in each group
+    # of identical scores (i.e. where the next score differs or end-of-array).
+    unique_mask = np.concatenate(
+        [sorted_scores[:-1] != sorted_scores[1:], np.array([True])]
+    )
+    tp_at = tp_cum[unique_mask]
+    fp_at = fp_cum[unique_mask]
+    thresholds = sorted_scores[unique_mask]
 
-    def _best_under_far(max_far: float) -> dict:
-        eligible = [record for record in sweep_records if record["false_alarm_rate"] <= max_far + 1e-12]
-        if not eligible:
-            return {"recall": 0.0, "threshold": 1.0}
-        return max(
-            eligible,
-            key=lambda record: (
-                record["recall"],
-                -record["false_alarm_rate"],
-                record["precision"],
-                record["threshold"],
-            ),
-        )
+    recall = tp_at / max(1, total_pos)
+    # Compute precision and F1 safely to avoid RuntimeWarning from division
+    denom = tp_at + fp_at
+    precision = np.divide(tp_at, denom, out=np.zeros_like(tp_at, dtype=np.float64), where=denom > 0)
+    far = fp_at / max(1, total_neg)
+    pr_sum = precision + recall
+    f1 = np.divide(
+        2.0 * precision * recall, pr_sum,
+        out=np.zeros_like(pr_sum, dtype=np.float64), where=pr_sum > 0,
+    )
 
-    far_1 = _best_under_far(0.01)
-    far_5 = _best_under_far(0.05)
+    # Best F1 — tie-break: max recall, then min FAR, then max threshold
+    best_f1_order = np.lexsort((thresholds, -far, recall, f1))
+    best_f1_idx = int(best_f1_order[-1])
+    best_f1_val = float(f1[best_f1_idx])
+    best_f1_thr = float(thresholds[best_f1_idx])
+
+    # Best recall under FAR constraint
+    def _best_under_far(max_far: float) -> tuple[float, float]:
+        eligible = far <= max_far + 1e-12
+        if not eligible.any():
+            return 0.0, 1.0
+        idx = np.where(eligible)[0]
+        # Among eligible, pick highest recall; break ties by lowest FAR
+        best_i = idx[int(np.argmax(recall[idx]))]
+        return float(recall[best_i]), float(thresholds[best_i])
+
+    recall_1, thr_1 = _best_under_far(0.01)
+    recall_5, thr_5 = _best_under_far(0.05)
 
     return {
         "pr_auc": float(average_precision_score(y_true_bin, scores)),
         "roc_auc": float(roc_auc_score(y_true_bin, scores)),
-        "best_f1": float(best_f1_record["f1"]) if best_f1_record is not None else 0.0,
-        "best_f1_threshold": float(best_f1_record["threshold"]) if best_f1_record is not None else 1.0,
-        "recall_at_far_1pct": float(far_1["recall"]),
-        "threshold_at_far_1pct": float(far_1["threshold"]),
-        "recall_at_far_5pct": float(far_5["recall"]),
-        "threshold_at_far_5pct": float(far_5["threshold"]),
+        "best_f1": best_f1_val,
+        "best_f1_threshold": best_f1_thr,
+        "recall_at_far_1pct": recall_1,
+        "threshold_at_far_1pct": thr_1,
+        "recall_at_far_5pct": recall_5,
+        "threshold_at_far_5pct": thr_5,
     }
 
 
