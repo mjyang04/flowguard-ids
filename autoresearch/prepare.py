@@ -36,7 +36,7 @@ SINGLE_DATA_FILE = Path("/workspace/data/processed/cicids2017/data.npz")
 INPUT_DIM = 55       # unified feature space dimensionality
 NUM_CLASSES = 2      # binary: 0=benign, 1=attack
 MAX_EPOCHS = 50      # maximum training epochs per experiment
-BATCH_SIZE = 256     # fixed for fair comparison
+BATCH_SIZE = 2048    # fixed for fair comparison
 
 
 # ---------------------------------------------------------------------------

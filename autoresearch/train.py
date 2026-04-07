@@ -67,7 +67,7 @@ MIN_LR: float           = 1e-6
 IMBALANCE_STRATEGY: str = "class_weights"  # "class_weights" | "none"
 
 # Batch size override (None = use prepare.BATCH_SIZE)
-BATCH_SIZE_OVERRIDE: int | None = 512
+BATCH_SIZE_OVERRIDE: int | None = None
 
 # V2 selection objective
 PRIMARY_SELECTION_METRIC: str = "recall_at_far_1pct"
