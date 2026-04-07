@@ -2,7 +2,7 @@ data:
   train_dataset: cicids2017
   test_dataset: unsw_nb15
   data_percentage: 100
-  batch_size: 2048
+  batch_size: 512
   num_workers: 2
   data_dir: data/raw
   processed_dir: data/processed
