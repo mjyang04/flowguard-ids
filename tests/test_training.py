@@ -48,7 +48,7 @@ def test_trainer_fit_runs(tmp_path: Path):
             early_stopping_delta=1e-5,
             gradient_clip=1.0,
             amp=False,
-            selection_metric="avg_attack_recall",
+            selection_metric="pr_auc",
         ),
         output_dir=tmp_path,
     )
@@ -56,3 +56,5 @@ def test_trainer_fit_runs(tmp_path: Path):
     assert Path(summary.best_model_path).exists()
     result = trainer.evaluate(model, test_loader, criterion=None, num_classes=2)
     assert "accuracy" in result.metrics
+    assert "pr_auc" in result.metrics
+    assert "recall_at_far_1pct" in result.metrics

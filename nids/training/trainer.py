@@ -24,6 +24,7 @@ class EvaluationResult:
     metrics: dict
     predictions: np.ndarray
     labels: np.ndarray
+    scores: np.ndarray | None = None
 
 
 @dataclass
@@ -231,6 +232,7 @@ class Trainer:
         total_loss = 0.0
         all_preds: list[np.ndarray] = []
         all_labels: list[np.ndarray] = []
+        all_scores: list[np.ndarray] = []
 
         iterator = data_loader
         if show_progress and self._show_eval_tqdm():
@@ -262,16 +264,28 @@ class Trainer:
                         loss = criterion(outputs, labels)
                     total_loss += float(loss.item())
 
-                preds = self._predict_from_logits(outputs, num_classes)
+                if num_classes == 2:
+                    probs = torch.sigmoid(outputs).reshape(-1)
+                    preds = (probs >= 0.5).long()
+                    all_scores.append(probs.cpu().numpy())
+                else:
+                    preds = self._predict_from_logits(outputs, num_classes)
                 all_preds.append(preds.cpu().numpy())
                 all_labels.append(labels.cpu().numpy())
 
         y_pred = np.concatenate(all_preds)
         y_true = np.concatenate(all_labels)
-        metrics = compute_nids_metrics(y_true, y_pred)
+        y_score = np.concatenate(all_scores) if all_scores else None
+        metrics = compute_nids_metrics(y_true, y_pred, y_score=y_score)
         loss = total_loss / max(1, len(data_loader)) if criterion is not None else 0.0
         metrics["loss"] = loss
-        return EvaluationResult(loss=loss, metrics=metrics, predictions=y_pred, labels=y_true)
+        return EvaluationResult(
+            loss=loss,
+            metrics=metrics,
+            predictions=y_pred,
+            labels=y_true,
+            scores=y_score,
+        )
 
     def fit(
         self,

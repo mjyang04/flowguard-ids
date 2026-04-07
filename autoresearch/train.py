@@ -1,9 +1,9 @@
 """
 FlowGuard IDS autoresearch training script.
-Edit this file freely — it is the only file you should modify.
 
 Baseline: CNN-BiLSTM-SE with default.yaml settings.
-Goal: maximize val_avg_attack_recall while keeping both test metrics strong.
+Goal: maximize v2 imbalance-aware validation quality while keeping both
+single-dataset and cross-dataset test metrics strong.
 
 Usage (inside Docker container, from /workspace/autoresearch):
     python train.py
@@ -68,6 +68,11 @@ IMBALANCE_STRATEGY: str = "class_weights"  # "class_weights" | "none"
 
 # Batch size override (None = use prepare.BATCH_SIZE)
 BATCH_SIZE_OVERRIDE: int | None = None
+
+# V2 selection objective
+PRIMARY_SELECTION_METRIC: str = "recall_at_far_1pct"
+SECONDARY_SELECTION_METRIC: str = "pr_auc"
+TERTIARY_SELECTION_METRIC: str = "avg_attack_recall"
 
 # ---------------------------------------------------------------------------
 # Model (self-contained copy of nids.models.cnn_bilstm_se.CNNBiLSTMSE)
@@ -167,6 +172,42 @@ class CNNBiLSTMSE(nn.Module):
 # Setup
 # ---------------------------------------------------------------------------
 
+
+def selection_tuple(metrics: dict) -> tuple[float, float, float, float]:
+    return (
+        float(metrics.get(PRIMARY_SELECTION_METRIC, 0.0)),
+        float(metrics.get(SECONDARY_SELECTION_METRIC, 0.0)),
+        float(metrics.get(TERTIARY_SELECTION_METRIC, 0.0)),
+        -float(metrics.get("benign_false_alarm_rate", 1.0)),
+    )
+
+
+def improved_over(current: dict, best: dict | None, delta: float) -> bool:
+    if best is None:
+        return True
+
+    current_primary = float(current.get(PRIMARY_SELECTION_METRIC, 0.0))
+    best_primary = float(best.get(PRIMARY_SELECTION_METRIC, 0.0))
+    if current_primary > best_primary + delta:
+        return True
+    if abs(current_primary - best_primary) <= delta:
+        return selection_tuple(current)[1:] > selection_tuple(best)[1:]
+    return False
+
+
+def format_metrics(prefix: str, metrics: dict) -> list[str]:
+    return [
+        f"{prefix}_avg_attack_recall:   {float(metrics.get('avg_attack_recall', 0.0)):.6f}",
+        f"{prefix}_pr_auc:              {float(metrics.get('pr_auc', 0.0)):.6f}",
+        f"{prefix}_roc_auc:             {float(metrics.get('roc_auc', 0.0)):.6f}",
+        f"{prefix}_recall_at_far_1pct:  {float(metrics.get('recall_at_far_1pct', 0.0)):.6f}",
+        f"{prefix}_recall_at_far_5pct:  {float(metrics.get('recall_at_far_5pct', 0.0)):.6f}",
+        f"{prefix}_best_f1:             {float(metrics.get('best_f1', 0.0)):.6f}",
+        f"{prefix}_best_f1_threshold:   {float(metrics.get('best_f1_threshold', 1.0)):.6f}",
+        f"{prefix}_false_alarm_rate:    {float(metrics.get('benign_false_alarm_rate', 0.0)):.6f}",
+        f"{prefix}_accuracy:            {float(metrics.get('accuracy', 0.0)):.6f}",
+    ]
+
 t_start = time.time()
 torch.manual_seed(42)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -224,7 +265,7 @@ elif OPTIMIZER == "sgd":
 else:
     raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
 
-# Scheduler — mirrors nids.training.trainer (ReduceLROnPlateau on val recall)
+# Scheduler — mirrors nids.training.trainer (ReduceLROnPlateau on scalar val metric)
 scheduler = None
 if SCHEDULER == "plateau":
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -239,14 +280,15 @@ elif SCHEDULER == "cosine":
 scaler = torch.amp.GradScaler("cuda") if USE_AMP and device.type == "cuda" else None
 
 print(f"Optimizer: {OPTIMIZER}  lr={LEARNING_RATE}  wd={WEIGHT_DECAY}  "
-      f"scheduler={SCHEDULER}  imbalance={IMBALANCE_STRATEGY}")
+      f"scheduler={SCHEDULER}  imbalance={IMBALANCE_STRATEGY}  "
+      f"selection={PRIMARY_SELECTION_METRIC}->{SECONDARY_SELECTION_METRIC}")
 
 # ---------------------------------------------------------------------------
 # Training loop — mirrors nids.training.trainer.Trainer.fit
 # ---------------------------------------------------------------------------
 
 t_train_start = time.time()
-best_val_recall = 0.0
+best_val_metrics: dict | None = None
 best_epoch = 0
 best_state_dict = None
 total_train_secs = 0.0
@@ -284,16 +326,17 @@ for epoch in range(1, MAX_EPOCHS + 1):
     avg_loss = epoch_loss / max(1, len(train_loader))
 
     val_metrics = evaluate_nids(model, val_loader, device, NUM_CLASSES, use_amp=USE_AMP)
-    val_recall = val_metrics["avg_attack_recall"]
+    val_pr_auc = float(val_metrics.get("pr_auc", 0.0))
+    val_r1 = float(val_metrics.get("recall_at_far_1pct", 0.0))
 
     if scheduler is not None:
         if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            scheduler.step(val_recall)
+            scheduler.step(val_r1)
         else:
             scheduler.step()
 
-    if val_recall > best_val_recall + EARLY_STOPPING_DELTA:
-        best_val_recall = val_recall
+    if improved_over(val_metrics, best_val_metrics, EARLY_STOPPING_DELTA):
+        best_val_metrics = copy.deepcopy(val_metrics)
         best_epoch = epoch
         best_state_dict = copy.deepcopy(model.state_dict())
         es_counter = 0
@@ -301,9 +344,12 @@ for epoch in range(1, MAX_EPOCHS + 1):
         es_counter += 1
 
     lr_now = optimizer.param_groups[0]["lr"]
+    best_r1 = 0.0 if best_val_metrics is None else float(best_val_metrics.get("recall_at_far_1pct", 0.0))
+    best_pr_auc = 0.0 if best_val_metrics is None else float(best_val_metrics.get("pr_auc", 0.0))
     print(
         f"\repoch {epoch:03d}/{MAX_EPOCHS} | loss={avg_loss:.4f} | "
-        f"val_recall={val_recall:.4f} | best={best_val_recall:.4f}(ep{best_epoch}) | "
+        f"val_r1={val_r1:.4f} | val_pr_auc={val_pr_auc:.4f} | "
+        f"best_r1={best_r1:.4f} | best_pr_auc={best_pr_auc:.4f}(ep{best_epoch}) | "
         f"lr={lr_now:.1e} | es={es_counter}/{EARLY_STOPPING_PATIENCE} | dt={dt:.1f}s    ",
         end="", flush=True,
     )
@@ -328,13 +374,15 @@ peak_vram_mb = torch.cuda.max_memory_allocated() / 1024 / 1024 if device.type ==
 t_end = time.time()
 
 print("---")
-print(f"val_avg_attack_recall:           {best_val_recall:.6f}")
-print(f"test_single_avg_attack_recall:   {test_single['avg_attack_recall']:.6f}")
-print(f"test_single_false_alarm_rate:    {test_single['benign_false_alarm_rate']:.6f}")
-print(f"test_single_accuracy:            {test_single['accuracy']:.6f}")
-print(f"test_cross_avg_attack_recall:    {test_cross['avg_attack_recall']:.6f}")
-print(f"test_cross_false_alarm_rate:     {test_cross['benign_false_alarm_rate']:.6f}")
-print(f"test_cross_accuracy:             {test_cross['accuracy']:.6f}")
+val_summary = best_val_metrics or {}
+print(f"selection_primary_metric:        {PRIMARY_SELECTION_METRIC}")
+print(f"selection_secondary_metric:      {SECONDARY_SELECTION_METRIC}")
+for line in format_metrics("val", val_summary):
+    print(line)
+for line in format_metrics("test_single", test_single):
+    print(line)
+for line in format_metrics("test_cross", test_cross):
+    print(line)
 print(f"training_seconds:                {total_train_secs:.1f}")
 print(f"total_seconds:                   {t_end - t_start:.1f}")
 print(f"peak_vram_mb:                    {peak_vram_mb:.1f}")

@@ -20,7 +20,7 @@ from nids.config import ExperimentConfig, load_config, save_config
 from nids.data.dataset import create_dataloaders
 from nids.data.preprocessing import apply_smote, compute_class_weights
 from nids.evaluation.metrics import compute_nids_metrics
-from nids.models.classical import train_random_forest, train_xgboost
+from nids.models.classical import predict_binary_scores, train_random_forest, train_xgboost
 from nids.models.registry import create_model
 from nids.training.trainer import Trainer
 from nids.utils.io import save_json
@@ -520,6 +520,14 @@ def _save_run_artifacts(
             "attack_miss_rate": float(metrics.get("attack_miss_rate", 0.0)),
             "macro_f1": float(metrics.get("macro_f1", 0.0)),
             "accuracy": float(metrics.get("accuracy", 0.0)),
+            "pr_auc": float(metrics.get("pr_auc", 0.0)),
+            "roc_auc": float(metrics.get("roc_auc", 0.0)),
+            "best_f1": float(metrics.get("best_f1", 0.0)),
+            "best_f1_threshold": float(metrics.get("best_f1_threshold", 1.0)),
+            "recall_at_far_1pct": float(metrics.get("recall_at_far_1pct", 0.0)),
+            "threshold_at_far_1pct": float(metrics.get("threshold_at_far_1pct", 1.0)),
+            "recall_at_far_5pct": float(metrics.get("recall_at_far_5pct", 0.0)),
+            "threshold_at_far_5pct": float(metrics.get("threshold_at_far_5pct", 1.0)),
         },
         output_dir / "key_metrics.json",
     )
@@ -697,8 +705,13 @@ def run_classical_training(
     fit_seconds = time.perf_counter() - t0
 
     y_pred = model.predict(X_test)
-    test_metrics = compute_nids_metrics(y_test, y_pred)
+    y_score = predict_binary_scores(model, X_test) if cfg.model.num_classes == 2 else None
+    test_metrics = compute_nids_metrics(y_test, y_pred, y_score=y_score)
     latency = _measure_classical_latency(model, X_test, batch_size=cfg.data.batch_size)
+    selected_metric_name = cfg.training.selection_metric
+    selected_metric_value = float(
+        test_metrics.get(selected_metric_name, test_metrics.get("avg_attack_recall", 0.0))
+    )
 
     model_path = output_dir / "best_model.pkl"
     with model_path.open("wb") as f:
@@ -712,7 +725,7 @@ def run_classical_training(
         "num_classes": cfg.model.num_classes,
         "feature_names": feature_names.tolist(),
         "training_summary": {
-            "best_metric": float(test_metrics.get("avg_attack_recall", 0.0)),
+            "best_metric": selected_metric_value,
             "best_epoch": 1,
             "best_model_path": str(model_path),
             "history": [{"epoch": 1, "train_loss": None, "val_loss": None, "val_metric": None}],
