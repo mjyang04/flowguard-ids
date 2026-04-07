@@ -992,6 +992,20 @@ python train.py --ablation --cross-dataset
 | **FAR (False Alarm Rate)** | FP/(FP+TN) | 误报率 |
 | **Attack Miss Rate** | 1 - Attack Recall | 漏报率 |
 
+### 7.1.1 不平衡感知阈值指标
+
+以下指标通过对预测分数进行向量化阈值扫描（O(n log n)）计算，专为类别不平衡的 IDS 场景设计：
+
+| 指标 | 说明 |
+|------|------|
+| **recall_at_far_1pct** | FAR ≤ 1% 约束下的最佳召回率（默认模型选择指标） |
+| **recall_at_far_5pct** | FAR ≤ 5% 约束下的最佳召回率 |
+| **best_f1** | 所有阈值中的最优 F1（tie-break: 最大 recall → 最小 FAR → 最大阈值） |
+| **pr_auc** | Precision-Recall 曲线下面积 |
+| **roc_auc** | ROC 曲线下面积 |
+
+这些指标需要传入 `y_score`（模型输出概率）。模型训练时通过 `training.selection_metric` 配置项选择用于保存最佳 checkpoint 的指标，默认为 `recall_at_far_1pct`。
+
 ### 7.2 推理延迟指标
 
 | 指标 | 说明 |
@@ -1033,36 +1047,20 @@ def measure_inference_latency(model, dataloader, device, n_batches=10):
 ### 7.3 评估代码
 
 ```python
-from sklearn.metrics import classification_report, confusion_matrix
-import numpy as np
+from nids.evaluation.metrics import compute_nids_metrics
 
-def compute_nids_metrics(y_true, y_pred, benign_class=0):
-    """计算NIDS专用指标"""
-    report = classification_report(y_true, y_pred, output_dict=True)
-    cm = confusion_matrix(y_true, y_pred)
+# 基础指标（无需概率分数）
+metrics = compute_nids_metrics(y_true, y_pred, benign_class=0)
 
-    # 提取指标
-    unique_classes = sorted(set(y_true) | set(y_pred))
-    attack_classes = [c for c in unique_classes if c != benign_class]
+# 完整指标（含阈值扫描指标，需要 y_score）
+metrics = compute_nids_metrics(y_true, y_pred, benign_class=0, y_score=y_score)
 
-    attack_recalls = []
-    attack_precisions = []
-    for cls in attack_classes:
-        attack_recalls.append(report[str(cls)]['recall'])
-        attack_precisions.append(report[str(cls)]['precision'])
-
-    benign_total = (y_true == benign_class).sum()
-    benign_false_alarms = ((y_true == benign_class) & (y_pred != benign_class)).sum()
-
-    return {
-        'accuracy': report['accuracy'],
-        'macro_f1': report['macro avg']['f1-score'],
-        'avg_attack_recall': np.mean(attack_recalls),
-        'attack_macro_precision': np.mean(attack_precisions),
-        'benign_false_alarm_rate': benign_false_alarms / benign_total,
-        'attack_miss_rate': 1 - np.mean(attack_recalls),
-        'confusion_matrix': cm.tolist()
-    }
+# 返回 dict 包含:
+# accuracy, macro_f1, avg_attack_recall, attack_macro_precision,
+# benign_false_alarm_rate, attack_miss_rate, confusion_matrix,
+# pr_auc, roc_auc, best_f1, best_f1_threshold,
+# recall_at_far_1pct, threshold_at_far_1pct,
+# recall_at_far_5pct, threshold_at_far_5pct
 ```
 
 ---
@@ -1072,7 +1070,7 @@ def compute_nids_metrics(y_true, y_pred, benign_class=0):
 ### 8.1 文件夹结构
 
 ```
-DL-Based-NIDS/
+flowguard-ids/
 ├── docs/                          # 文档
 │   ├── NIDS_Technical_Design.md   # 本文档
 │   └── API_Reference.md
@@ -1081,82 +1079,81 @@ DL-Based-NIDS/
 │   ├── raw/                       # 原始数据
 │   │   ├── cicids2017/
 │   │   └── unsw_nb15/
-│   ├── processed/                 # 处理后数据
-│   │   ├── cicids2017/
-│   │   └── unsw_nb15/
-│   └── shap_samples/              # SHAP样本
+│   ├── processed/                 # 处理后数据（.npz、scaler、metadata）
+│   └── shap_samples/              # 缓存的 SHAP 样本
 │
 ├── nids/                          # 主代码包
 │   ├── __init__.py
-│   ├── config.py                  # 配置类
+│   ├── config.py                  # 配置 dataclass 定义 + YAML 加载器
 │   │
 │   ├── data/                      # 数据处理模块
 │   │   ├── __init__.py
-│   │   ├── dataset.py             # Dataset定义
-│   │   ├── preprocessing.py      # 预处理函数
-│   │   ├── augmentation.py        # 数据增强
-│   │   └── cross_dataset.py       # 跨数据集处理
+│   │   ├── dataset.py             # NIDSDataset + DataLoader 工厂
+│   │   ├── preprocessing.py       # 预处理函数
+│   │   ├── augmentation.py        # SMOTE / 重采样
+│   │   └── cross_dataset.py       # 跨数据集特征对齐
 │   │
 │   ├── models/                    # 模型模块
 │   │   ├── __init__.py
-│   │   ├── base.py                # 基类
-│   │   ├── cnn_bilstm.py          # 基础模型
-│   │   ├── cnn_bilstm_se.py       # SE版本
-│   │   ├── cnn_bilstm_attention.py# 注意力版本
-│   │   ├── classical.py           # 传统ML模型
-│   │   └── registry.py            # 模型注册表
+│   │   ├── base.py                # 抽象基类
+│   │   ├── cnn_bilstm.py          # 基础 CNN-BiLSTM
+│   │   ├── cnn_bilstm_se.py       # 主模型（SE 注意力）
+│   │   ├── cnn_bilstm_attention.py# 注意力变体（未纳入训练命令）
+│   │   ├── classical.py           # Random Forest、XGBoost 封装
+│   │   └── registry.py            # 模型名称 → 类映射
 │   │
 │   ├── training/                  # 训练模块
 │   │   ├── __init__.py
-│   │   ├── trainer.py             # 训练器
-│   │   ├── callbacks.py           # 回调函数
-│   │   └── optimizers.py          # 优化器配置
+│   │   ├── trainer.py             # 主训练循环 + 评估
+│   │   ├── callbacks.py           # Early Stopping
+│   │   └── optimizers.py          # 优化器 & 调度器工厂
 │   │
 │   ├── evaluation/                # 评估模块
 │   │   ├── __init__.py
-│   │   ├── evaluator.py           # 评估器
-│   │   ├── metrics.py             # 指标计算
-│   │   └── latency.py             # 延迟测量
+│   │   ├── evaluator.py           # 高级模型评估
+│   │   ├── metrics.py             # NIDS 专用指标（含不平衡感知阈值指标）
+│   │   └── latency.py             # 推理延迟测量
 │   │
-│   ├── features/                  # 特征工程模块（新增）
+│   ├── features/                  # 特征工程模块
 │   │   ├── __init__.py
-│   │   ├── shap_analysis.py       # SHAP分析
-│   │   ├── feature_selector.py    # 特征选择
-│   │   └── importance.py          # 重要性计算
+│   │   ├── shap_analysis.py       # SHAPAnalyzer（GradientExplainer / DeepExplainer）
+│   │   ├── feature_selector.py    # Top-K / 累积阈值选择
+│   │   └── importance.py          # 特征重要性聚合
 │   │
 │   └── utils/                     # 工具模块
 │       ├── __init__.py
-│       ├── logging.py
-│       ├── reproducibility.py
-│       ├── io.py
-│       └── visualization.py
+│       ├── logging.py             # 结构化日志
+│       ├── reproducibility.py     # 随机种子设置
+│       ├── io.py                  # JSON / artifact I/O
+│       ├── visualization.py       # 论文级图表生成
+│       └── process.py             # 子进程工具
 │
-├── scripts/                       # 脚本
-│   ├── preprocess.py              # 数据预处理脚本
+├── scripts/                       # CLI 入口脚本
+│   ├── preprocess.py              # 单数据集预处理
 │   ├── preprocess_cross_dataset.py # 跨数据集预处理
-│   ├── train.py                   # 训练脚本
-│   ├── evaluate.py                # 评估脚本
-│   ├── shap_analysis.py           # SHAP分析脚本
-│   ├── feature_selection.py       # 特征选择脚本
-│   ├── export_model.py            # 模型导出
-│   └── run_experiments.py         # 实验脚本
+│   ├── train.py                   # 训练一个模型 / 全部模型 / 一键训练
+│   ├── train_lightweight.py       # 从 Top-K 特征重训轻量模型
+│   ├── run_experiments.py         # 批量实验（3 组设定 × 5 模型）
+│   ├── evaluate.py                # 评估已保存模型
+│   ├── shap_analysis.py           # SHAP 可解释性流程
+│   ├── feature_selection.py       # Top-K / 累积特征选择
+│   └── export_model.py            # 导出 TorchScript / ONNX
 │
-├── tests/                         # 测试
+├── tests/                         # 单元测试
+│   ├── conftest.py                # Pytest fixtures
+│   ├── test_config.py
 │   ├── test_data.py
 │   ├── test_models.py
-│   └── test_training.py
+│   ├── test_training.py
+│   └── test_metrics.py
 │
 ├── configs/                       # 配置文件
-│   ├── default.yaml
-│   ├── cicids2017.yaml
-│   ├── unsw_nb15.yaml
-│   └── experiment_*.yaml
+│   ├── default.yaml               # 默认配置（推荐起点）
+│   ├── experiment_cnn_bilstm_se.yaml  # 论文实验配置
+│   ├── cicids2017.yaml            # 同数据集配置
+│   └── unsw_nb15.yaml             # 同数据集配置
 │
-├── notebooks/                      # Jupyter notebooks
-│   ├── EDA.ipynb
-│   ├── SHAP_Analysis.ipynb
-│   └── Results_Analysis.ipynb
-│
+├── Dockerfile                     # CUDA 训练环境
 ├── requirements.txt
 ├── setup.py
 └── README.md

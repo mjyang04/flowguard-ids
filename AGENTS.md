@@ -138,5 +138,5 @@ Each run directory is expected to be self-contained with weights, config snapsho
 - `--one-click` skips models that are already trained. Use `--force` only when clean retraining is intended.
 - `--resume` continues from `checkpoint_last.pt` for interrupted deep-model runs.
 - The SHAP reference model is `cnn_bilstm_se` trained on `cicids2017 -> cicids2017` and should be reused unless the user asks to regenerate it.
-- `training.selection_metric = avg_attack_recall` is intentional. Do not "fix" it to overall accuracy without explicit instruction.
+- `training.selection_metric` defaults to `recall_at_far_1pct` in config YAML files. Do not change it without explicit instruction.
 - `--auto-preprocess` and `--auto-feature-selection` are intended to resolve dependencies automatically.

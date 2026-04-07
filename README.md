@@ -5,14 +5,15 @@ Lightweight IDS research project for graduation design:
 
 ## Highlights
 
-- Unified preprocessing pipeline for CICIDS2017 and UNSW-NB15
+- Unified preprocessing pipeline for CICIDS2017 and UNSW-NB15 (55-dim shared feature space)
 - 5 supported models:
-  - `cnn_bilstm`
-  - `cnn_bilstm_se`
-  - `cnn_bilstm_se_topk` (alias: `cnn_bilstm_se_fs`)
-  - `random_forest`
-  - `xgboost`
+  - `cnn_bilstm` — baseline deep model
+  - `cnn_bilstm_se` — main model with Squeeze-Excitation attention
+  - `cnn_bilstm_se_topk` (alias: `cnn_bilstm_se_fs`) — main model on SHAP-reduced features
+  - `random_forest` — lightweight classical model
+  - `xgboost` — lightweight classical model
 - `cnn_bilstm_attention` is kept in code but excluded from current training commands
+- Imbalance-aware evaluation metrics designed for IDS: `recall_at_far_1pct`, `recall_at_far_5pct`, `best_f1`, `pr_auc`, `roc_auc` (see [Evaluation Metrics](#evaluation-metrics))
 - One-click training and one-click experiments
 - Skip trained models by default in one-click mode, with `--force` for full retrain
 - Every training run is traceable with a unique folder name: `timestamp + model + strategy (+ tag)`
@@ -20,6 +21,7 @@ Lightweight IDS research project for graduation design:
 - Auto-generate paper-ready figures and structured run artifacts in each run folder
 - Supports resume training from `checkpoint_last.pt` for interrupted deep-model runs
 - Config-driven scheduler and early stopping switches
+- Docker support for GPU training environments (CUDA 12.4)
 
 ## Repository Structure
 
@@ -39,16 +41,41 @@ flowguard-ids/
 |   `-- shap_samples/                     # Cached SHAP sample files
 |
 |-- docs/
-|   `-- API_Reference.md                  # Core module interfaces
+|   |-- API_Reference.md                  # Core module interfaces
+|   `-- NIDS_Technical_Design.md          # Technical design document (Chinese)
 |
 |-- nids/                                 # Main Python package
 |   |-- config.py                         # Dataclass config definitions + loader
 |   |-- data/                             # Loading/cleaning/alignment/dataset builders
+|   |   |-- preprocessing.py              # Single-dataset preprocessing
+|   |   |-- cross_dataset.py              # Cross-dataset feature alignment
+|   |   |-- dataset.py                    # NIDSDataset + DataLoader factory
+|   |   `-- augmentation.py               # SMOTE / resampling utilities
 |   |-- models/                           # Deep models, classical models, model registry
+|   |   |-- cnn_bilstm.py                # Baseline CNN-BiLSTM
+|   |   |-- cnn_bilstm_se.py             # Main model with SE attention
+|   |   |-- cnn_bilstm_attention.py      # Variant with attention (excluded from training)
+|   |   |-- classical.py                  # Random Forest, XGBoost wrappers
+|   |   |-- base.py                       # Abstract base model interface
+|   |   `-- registry.py                   # Model name -> class mapping
 |   |-- training/                         # Trainer loop, optimizer, scheduler, callbacks
+|   |   |-- trainer.py                    # Main training loop + evaluation
+|   |   |-- optimizers.py                 # Optimizer & scheduler factory
+|   |   `-- callbacks.py                  # Early stopping
 |   |-- evaluation/                       # Metrics and latency utilities
+|   |   |-- metrics.py                    # NIDS-specific metrics (see Evaluation Metrics)
+|   |   |-- evaluator.py                  # High-level model evaluation
+|   |   `-- latency.py                    # Inference latency measurement
 |   |-- features/                         # SHAP and feature selection pipeline
+|   |   |-- shap_analysis.py              # SHAPAnalyzer (GradientExplainer / DeepExplainer)
+|   |   |-- importance.py                 # Feature importance aggregation
+|   |   `-- feature_selector.py           # Top-K and cumulative threshold selection
 |   `-- utils/                            # Logging, IO, reproducibility, plotting
+|       |-- logging.py                    # Structured logger
+|       |-- io.py                         # JSON/artifact I/O helpers
+|       |-- visualization.py              # Paper-ready figures
+|       |-- reproducibility.py            # Seed setting
+|       `-- process.py                    # Subprocess utilities
 |
 |-- scripts/                              # CLI entrypoints used by users
 |   |-- preprocess.py                     # Single-dataset preprocessing
@@ -61,7 +88,8 @@ flowguard-ids/
 |   |-- feature_selection.py              # Top-K/cumulative feature selection
 |   `-- export_model.py                   # Export to TorchScript / ONNX
 |
-|-- tests/                                # Unit tests (config, data, model, training)
+|-- tests/                                # Unit tests (config, data, model, training, metrics)
+|-- Dockerfile                            # CUDA training environment (PyTorch 2.5.1 + CUDA 12.4)
 |-- requirements.txt                      # Python dependencies
 |-- setup.py                              # Package metadata
 `-- README.md
@@ -74,6 +102,9 @@ Recommended reading order for new contributors:
 3. `scripts/train.py` and `scripts/run_experiments.py` (entrypoint behavior)
 4. `nids/data/preprocessing.py` and `nids/models/` (core pipeline + model logic)
 5. `nids/training/trainer.py` (training details: scheduler, early stopping, progress)
+6. `nids/evaluation/metrics.py` (NIDS-specific evaluation metrics)
+7. `docs/API_Reference.md` (module interfaces)
+8. `docs/NIDS_Technical_Design.md` (system design and architecture, Chinese)
 
 ## Requirements
 
@@ -296,6 +327,39 @@ The `<Strategy>` part is automatically inferred from your imbalance setting, e.g
 
 This design guarantees reproducibility and makes every run directly traceable in your thesis output.
 
+## Evaluation Metrics
+
+The evaluation system (`nids/evaluation/metrics.py`) computes IDS-specific metrics that account for class imbalance — in network intrusion detection, attack traffic is rare and missing an attack is far more costly than a false alarm.
+
+### Core Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `accuracy` | Overall classification accuracy |
+| `macro_f1` | Macro-averaged F1 score across all classes |
+| `avg_attack_recall` | Mean recall across attack classes (excludes benign) |
+| `attack_macro_precision` | Mean precision across attack classes |
+| `benign_false_alarm_rate` | Rate at which benign traffic is misclassified as attack (FAR) |
+| `attack_miss_rate` | `1 - avg_attack_recall` — fraction of attacks missed |
+
+### Imbalance-Aware Threshold Metrics
+
+These metrics are computed via a vectorized threshold sweep over prediction scores (O(n log n)):
+
+| Metric | Description |
+|--------|-------------|
+| `recall_at_far_1pct` | Best recall achievable while keeping FAR ≤ 1% |
+| `recall_at_far_5pct` | Best recall achievable while keeping FAR ≤ 5% |
+| `best_f1` | Optimal F1 score across all thresholds (tie-break: max recall, then min FAR) |
+| `pr_auc` | Area under the Precision-Recall curve |
+| `roc_auc` | Area under the ROC curve |
+
+### Model Selection
+
+The `training.selection_metric` config knob controls which metric is used to select the best checkpoint during training. The default is `recall_at_far_1pct` — this prioritizes models that detect attacks reliably while maintaining a low false alarm rate.
+
+Available choices: `recall_at_far_1pct`, `recall_at_far_5pct`, `best_f1`, `pr_auc`, `avg_attack_recall`, or any key returned by `compute_nids_metrics()`.
+
 ## Key Config Knobs
 
 Edit `configs/*.yaml`:
@@ -303,13 +367,15 @@ Edit `configs/*.yaml`:
 ```yaml
 data:
   data_percentage: 100   # use full dataset; e.g. 10 means use 10% for quick experiments
-  batch_size: 128
+  batch_size: 256
 
 training:
   num_epochs: 30
   learning_rate: 0.001
+  optimizer: adamw
   use_scheduler: true
   use_early_stopping: true
+  selection_metric: recall_at_far_1pct  # metric for best checkpoint selection
   use_tqdm: true
   show_eval_tqdm: false
 ```
@@ -317,6 +383,25 @@ training:
 Important:
 - If preprocessed artifacts already exist (for example from 100% data), changing `data.data_percentage` alone will not trigger automatic re-preprocessing.
 - To make a new percentage effective, re-run preprocessing explicitly (or remove the old processed artifact first).
+
+## Docker
+
+A `Dockerfile` is provided for reproducible GPU training environments:
+
+```bash
+# Build the image
+docker build -t flowguard-ids .
+
+# Run training (GPU required)
+docker run --rm --gpus all -v $(pwd):/workspace flowguard-ids \
+  python scripts/train.py --config configs/default.yaml --cross-dataset \
+  --train-dataset cicids2017 --test-dataset unsw_nb15 --one-click
+
+# Interactive shell
+docker run -it --gpus all -v $(pwd):/workspace flowguard-ids bash
+```
+
+Base image: `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`.
 
 ## Testing
 
