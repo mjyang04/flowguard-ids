@@ -1,11 +1,23 @@
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+FROM nvidia/cuda:12.8.0-cudnn9-runtime-ubuntu22.04
 
-# Install system tools
+ENV PYTHON_VERSION=3.12
+
+# Install Python 3.12 and system tools
 RUN apt-get update && apt-get install -y \
+    python3.12 \
+    python3.12-dev \
+    python3-pip \
     tmux \
     git \
     vim \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
+
+# Install PyTorch with CUDA 12.8 support
+# Use torch's default index to get CUDA-compatible wheels
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu128
 
 WORKDIR /workspace
 
