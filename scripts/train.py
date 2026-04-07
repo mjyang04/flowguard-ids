@@ -27,6 +27,14 @@ from nids.utils.io import save_json
 from nids.utils.logging import get_logger
 from nids.utils.process import run_command
 from nids.utils.reproducibility import seed_everything
+from nids.utils.run_layout import (
+    candidate_model_roots as _candidate_model_roots,
+    experiment_group_name as _experiment_group_name,
+    find_latest_best_model_in_roots as _find_latest_best_model_in_roots,
+    find_latest_checkpoint_run_in_roots as _find_latest_checkpoint_run_in_roots,
+    find_latest_report_in_roots as _find_latest_report_in_roots,
+    resolve_model_root_for_write as _resolve_model_root_for_write,
+)
 from nids.utils.visualization import (
     plot_confusion_matrix,
     plot_nids_key_metrics,
@@ -205,59 +213,6 @@ def _build_run_name(model_name: str, strategy: str, run_tag: str | None) -> str:
     return "_".join(parts)
 
 
-def _find_latest_report(model_root: Path) -> Path | None:
-    runs_dir = model_root / "runs"
-    if runs_dir.exists():
-        candidates = sorted(
-            [p for p in runs_dir.glob("*/report.json") if p.is_file()],
-            key=lambda x: x.parent.name,
-        )
-        if candidates:
-            return candidates[-1]
-    legacy_report = model_root / "report.json"
-    if legacy_report.exists():
-        return legacy_report
-    return None
-
-
-def _find_latest_best_model(model_root: Path, suffix: str = ".pt") -> Path | None:
-    runs_dir = model_root / "runs"
-    if runs_dir.exists():
-        candidates = sorted(
-            [p for p in runs_dir.glob(f"*/best_model{suffix}") if p.is_file()],
-            key=lambda x: x.parent.name,
-        )
-        if candidates:
-            return candidates[-1]
-    legacy_model = model_root / f"best_model{suffix}"
-    if legacy_model.exists():
-        return legacy_model
-    return None
-
-
-def _find_latest_checkpoint_run(model_root: Path) -> Path | None:
-    runs_dir = model_root / "runs"
-    if not runs_dir.exists():
-        return None
-    candidates = sorted(
-        [p.parent for p in runs_dir.glob("*/checkpoint_last.pt") if p.is_file()],
-        key=lambda x: x.name,
-    )
-    for run_dir in reversed(candidates):
-        if not (run_dir / "report.json").exists():
-            return run_dir
-    return None
-
-
-def _experiment_group_name(train_ds: str, test_ds: str) -> str | None:
-    mapping = {
-        ("cicids2017", "cicids2017"): "same_cicids",
-        ("cicids2017", "unsw_nb15"): "cross_cic_to_unsw",
-        ("unsw_nb15", "cicids2017"): "cross_unsw_to_cic",
-    }
-    return mapping.get((train_ds, test_ds))
-
-
 def _resolve_shared_shap_dir(args: argparse.Namespace, cfg: ExperimentConfig) -> Path:
     if args.shap_dir == "artifacts/shap":
         return (
@@ -310,15 +265,10 @@ def _find_reference_model_path(
         candidates.append(Path(cfg.runtime.output_dir) / "experiments" / exp_group / ref_model)
     candidates.append(Path(cfg.runtime.output_dir) / f"{ref_train}_to_{ref_test}" / ref_model)
 
-    seen: set[Path] = set()
-    for candidate_root in candidates:
-        if candidate_root in seen:
-            continue
-        seen.add(candidate_root)
-        model_path = _find_latest_best_model(candidate_root, suffix=".pt")
-        if model_path is not None:
-            logger.info("Using shared SHAP reference model: %s", model_path)
-            return model_path
+    model_path = _find_latest_best_model_in_roots(candidates, suffix=".pt")
+    if model_path is not None:
+        logger.info("Using shared SHAP reference model: %s", model_path)
+        return model_path
     return None
 
 
@@ -905,19 +855,31 @@ def main() -> None:
     base_output_dir.mkdir(parents=True, exist_ok=True)
 
     reports = {}
+    models_count = len(models)
     explicit_resume_run_dir = Path(args.resume_run_dir).resolve() if args.resume_run_dir else None
     if explicit_resume_run_dir is not None and len(models) != 1:
         raise ValueError("--resume-run-dir is only supported in single-model mode.")
 
     for requested_model_name in models:
         model_name = _canonical_model_name(requested_model_name)
-        if args.output_dir and len(models) == 1:
-            model_root = base_output_dir
-        else:
-            model_root = base_output_dir / model_name
+        model_root_candidates = _candidate_model_roots(
+            artifacts_root=cfg.runtime.output_dir,
+            train_ds=train_ds,
+            test_ds=test_ds,
+            model_name=model_name,
+            base_output_dir=base_output_dir,
+            explicit_output_dir=args.output_dir,
+            models_count=models_count,
+        )
+        model_root = _resolve_model_root_for_write(
+            base_output_dir=base_output_dir,
+            explicit_output_dir=args.output_dir,
+            models_count=models_count,
+            model_name=model_name,
+        )
         model_root.mkdir(parents=True, exist_ok=True)
 
-        existing_report = _find_latest_report(model_root)
+        existing_report = _find_latest_report_in_roots(model_root_candidates)
         if args.skip_existing and existing_report is not None:
             logger.info("Skip existing model=%s at %s", model_name, existing_report)
             continue
@@ -955,7 +917,7 @@ def main() -> None:
             if explicit_resume_run_dir is not None:
                 resumable_run_dir = explicit_resume_run_dir
             else:
-                resumable_run_dir = _find_latest_checkpoint_run(model_root)
+                resumable_run_dir = _find_latest_checkpoint_run_in_roots(model_root_candidates)
             if resumable_run_dir is not None:
                 candidate_ckpt = (resumable_run_dir / "checkpoint_last.pt").resolve()
                 if candidate_ckpt.exists():

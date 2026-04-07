@@ -182,6 +182,11 @@ Each setting trains all 5 models and skips existing results by default:
 python scripts/run_experiments.py --config configs/default.yaml --one-click
 ```
 
+`run_experiments.py` now reuses the same canonical training layout as `scripts/train.py`:
+
+- model artifacts: `artifacts/<train_dataset>_to_<test_dataset>/<model_name>/runs/...`
+- batch summary: `artifacts/experiments/experiment_status.json`
+
 In non-`--force` one-click mode:
 - finished models are skipped
 - interrupted deep-model runs are resumed from `checkpoint_last.pt` automatically
@@ -190,6 +195,24 @@ Force full retraining for all experiment groups:
 
 ```bash
 python scripts/run_experiments.py --config configs/default.yaml --one-click --force
+```
+
+### 2.1) RTX 3060 laptop preset (keep default training hyperparameters)
+
+This preset keeps the baseline config from `configs/default.yaml` intact, including `batch_size: 512`, but reduces total work by:
+
+- running only cross-dataset experiments
+- selecting `cnn_bilstm_se`, `random_forest`, and `xgboost`
+- keeping one-click conveniences such as auto preprocess, skip existing results, and resume
+
+```bash
+python scripts/run_experiments.py --config configs/default.yaml --profile laptop_3060 --one-click
+```
+
+If you want the same cross-dataset-only behavior without the preset, you can also select it manually:
+
+```bash
+python scripts/run_experiments.py --config configs/default.yaml --cross-only --models cnn_bilstm_se,random_forest,xgboost --one-click
 ```
 
 ### 3) Final lightweight model (your deliverable model)
@@ -326,6 +349,8 @@ The `<Strategy>` part is automatically inferred from your imbalance setting, e.g
 - `NoRebalance`
 
 This design guarantees reproducibility and makes every run directly traceable in your thesis output.
+
+When using `scripts/run_experiments.py`, the same layout is used for all model artifacts. The runner only writes experiment summaries to `artifacts/experiments/`.
 
 ## Evaluation Metrics
 
