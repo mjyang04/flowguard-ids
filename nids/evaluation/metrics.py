@@ -37,6 +37,9 @@ def _compute_binary_score_metrics(
     if len(np.unique(y_true_bin)) < 2:
         return {}
 
+    nan_mask = np.isnan(scores)
+    if nan_mask.any():
+        scores = np.where(nan_mask, 0.0, scores)
     scores = np.clip(scores, 0.0, 1.0)
 
     # Vectorized threshold sweep via sorted cumulative sums.
