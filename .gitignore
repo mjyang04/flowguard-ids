@@ -18,6 +18,9 @@ data/
 *.npy
 *.npz
 CLAUDE.md
-AGENTS.mds
+AGENTS.md
 environment.yml
 *.egg-info/
+proposal draft.docx
+docs/thesis_draft.md
+docs/thesis_draft_en.md
