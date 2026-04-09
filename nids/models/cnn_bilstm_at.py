@@ -21,19 +21,24 @@ from .base import BaseNIDSModel
 
 
 class SoftAttention(nn.Module):
-    """Element-wise soft attention (tanh + softmax) from Najar et al."""
+    """Sequence-level soft attention from Najar et al. (2025).
+
+    Computes attention weights over time steps (Eq. 5-7 in the paper):
+      M = σ(Y)
+      α = softmax(wₐᵀ · M)
+      A = Y · αᵀ
+    where Y is the BiLSTM output matrix over all time steps.
+    """
 
     def __init__(self, dim: int):
         super().__init__()
-        self.score = nn.Sequential(
-            nn.Linear(dim, dim),
-            nn.Tanh(),
-        )
+        self.score = nn.Linear(dim, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch, dim)
-        weights = torch.softmax(self.score(x), dim=-1)
-        return x * weights
+        # x: (seq_len, batch, dim) — BiLSTM output over time steps
+        energy = torch.tanh(x)                     # M = σ(Y)
+        weights = torch.softmax(self.score(energy), dim=0)  # α over seq dim
+        return (weights * x).sum(dim=0)            # A = weighted sum → (batch, dim)
 
 
 class CNNBiLSTMAT(BaseNIDSModel):
@@ -107,11 +112,8 @@ class CNNBiLSTMAT(BaseNIDSModel):
         x = x.permute(2, 0, 1)          # (55, batch, 16)
         lstm_out, _ = self.lstm(x)       # (55, batch, 32)
 
-        # Mean pool over sequence
-        pooled = lstm_out.mean(dim=0)    # (batch, 32)
-
-        # Soft attention
-        attended = self.attention(pooled)  # (batch, 32)
+        # Soft attention over time steps (before pooling, per Najar Eq. 5-7)
+        attended = self.attention(lstm_out)  # (batch, 32)
 
         # Post-attention + classifier
         feat = self.post_attn(attended)   # (batch, 32)
