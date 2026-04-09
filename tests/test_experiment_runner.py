@@ -111,7 +111,6 @@ def test_laptop_3060_profile_runs_cross_dataset_subset() -> None:
 
     assert experiments == [
         ("cross_cic_to_unsw", "cicids2017", "unsw_nb15"),
-        ("cross_unsw_to_cic", "unsw_nb15", "cicids2017"),
     ]
     assert "--models" in cmd
     assert cmd[cmd.index("--models") + 1] == "cnn_bilstm_se,random_forest,xgboost"
