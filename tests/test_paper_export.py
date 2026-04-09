@@ -41,6 +41,8 @@ def _create_run(
             "data_file": f"data/processed/cross_{train_dataset}_to_{test_dataset}.npz",
             "input_dim": 55,
             "num_classes": 2,
+            "total_params": 150000,
+            "trainable_params": 150000,
             "feature_names": ["f0", "f1", "f2"],
             "training_summary": {
                 "best_metric": pr_auc,

@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--imbalance-strategy",
         default="auto",
-        choices=["auto", "class_weights", "smote", "none"],
+        choices=["auto", "smote", "oversampling", "weighted_sampler", "none"],
         help="Imbalance strategy passed to scripts/train.py for lightweight retraining",
     )
     parser.add_argument("--run-tag", default="lightweight", help="Run tag for traceable output directory names")
@@ -178,7 +178,7 @@ def main() -> None:
         args.config,
         "--data-file",
         str(reduced_data),
-        "--model",
+        "--models",
         args.model,
         "--output-dir",
         str(output_dir),

@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from nids.config import ExperimentConfig, load_config, save_config
 from nids.data.dataset import create_dataloaders
-from nids.data.preprocessing import apply_smote, compute_class_weights
+from nids.data.preprocessing import apply_oversampling, apply_smote, compute_class_weights
 from nids.evaluation.metrics import compute_nids_metrics
 from nids.models.classical import predict_binary_scores, train_random_forest, train_xgboost
 from nids.models.registry import create_model
@@ -47,7 +47,7 @@ TRAINABLE_DEEP_MODELS = ["cnn_bilstm", "cnn_bilstm_se", "cnn_bilstm_se_topk", "c
 CLASSICAL_MODELS = ["random_forest", "xgboost"]
 TRAINABLE_MODELS = TRAINABLE_DEEP_MODELS + CLASSICAL_MODELS
 CLI_MODEL_CHOICES = TRAINABLE_MODELS + list(TOPK_MODEL_ALIASES.keys())
-IMBALANCE_STRATEGIES = ["auto", "class_weights", "smote", "none"]
+IMBALANCE_STRATEGIES = ["auto", "smote", "oversampling", "weighted_sampler", "none"]
 
 MODEL_NAME_FOR_RUN = {
     "cnn_bilstm": "CNN-BiLSTM",
@@ -59,9 +59,9 @@ MODEL_NAME_FOR_RUN = {
 }
 
 STRATEGY_NAME_FOR_RUN = {
-    "class_weights": "ClassWeights",
-    "class_weight_balanced": "ClassWeights",
     "smote": "SMOTE",
+    "oversampling": "Oversampling",
+    "weighted_sampler": "WeightedSampler",
     "none": "NoRebalance",
 }
 
@@ -73,11 +73,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--train-dataset", default=None, choices=["cicids2017", "unsw_nb15"])
     parser.add_argument("--test-dataset", default=None, choices=["cicids2017", "unsw_nb15"])
-    parser.add_argument("--cross-dataset", action="store_true")
-    parser.add_argument("--model", choices=CLI_MODEL_CHOICES, default=None)
-    parser.add_argument("--models", default=None, help="Comma-separated model names")
-    parser.add_argument("--all-models", action="store_true")
-    parser.add_argument("--ablation", action="store_true")
+    parser.add_argument(
+        "--models",
+        default=None,
+        help="Model selection: single name, comma-separated list, or 'all' (e.g. --models cnn_bilstm_se,xgboost)",
+    )
     parser.add_argument(
         "--one-click",
         action="store_true",
@@ -94,7 +94,7 @@ def parse_args() -> argparse.Namespace:
         "--imbalance-strategy",
         default="auto",
         choices=IMBALANCE_STRATEGIES,
-        help="Imbalance handling strategy tag/control (auto/class_weights/smote/none)",
+        help="Imbalance handling strategy (auto=smote)",
     )
     parser.add_argument(
         "--run-tag",
@@ -120,11 +120,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--feature-selection-dir", default="artifacts/feature_selection")
     parser.add_argument("--reduced-data", default=None, help="Optional reduced npz path for cnn_bilstm_se_topk")
     parser.add_argument("--top-k", type=int, default=None, help="Top-K used for feature selection")
-    parser.add_argument(
-        "--no-paper-artifacts",
-        action="store_true",
-        help="Disable automatic generation of paper-friendly figures/tables",
-    )
     parser.add_argument("--max-rows", type=int, default=None)
     return parser.parse_args()
 
@@ -136,7 +131,7 @@ def _resolve_data_file(cfg: ExperimentConfig, args: argparse.Namespace) -> Path:
     train_ds = args.train_dataset or cfg.data.train_dataset
     test_ds = args.test_dataset or cfg.data.test_dataset
     processed_dir = Path(cfg.data.processed_dir)
-    if args.cross_dataset or train_ds != test_ds:
+    if train_ds != test_ds:
         return processed_dir / f"cross_{train_ds}_to_{test_ds}.npz"
     return processed_dir / train_ds / "data.npz"
 
@@ -151,17 +146,15 @@ def _canonical_model_name(name: str) -> str:
 
 
 def _resolve_models(args: argparse.Namespace, cfg: ExperimentConfig) -> list[str]:
-    if args.all_models or args.ablation:
+    models_arg = args.models
+    if models_arg and models_arg.strip().lower() == "all":
         return TRAINABLE_MODELS
-    if args.models:
-        picked = [_canonical_model_name(x.strip()) for x in args.models.split(",") if x.strip()]
+    if models_arg:
+        picked = [_canonical_model_name(x.strip()) for x in models_arg.split(",") if x.strip()]
         invalid = [x for x in picked if x not in TRAINABLE_MODELS]
         if invalid:
             raise ValueError(f"Unknown model(s): {invalid}. Supported: {TRAINABLE_MODELS}")
-        # Deduplicate while preserving order (handles alias inputs).
         return list(dict.fromkeys(picked))
-    if args.model:
-        return [_canonical_model_name(args.model)]
     cfg_model_name = _canonical_model_name(cfg.model.name)
     if cfg_model_name == "cnn_bilstm_attention":
         raise ValueError(
@@ -187,21 +180,12 @@ def _sanitize_tag(text: str) -> str:
 
 
 def _resolve_effective_imbalance_strategy(model_name: str, requested: str) -> str:
-    if model_name in TRAINABLE_DEEP_MODELS:
-        if requested == "auto":
-            return "class_weights"
-        return requested
-    if model_name == "random_forest":
-        if requested in {"auto", "class_weights"}:
-            return "class_weight_balanced"
-        if requested == "smote":
-            return "smote"
-        return "none"
-    if model_name == "xgboost":
-        if requested == "smote":
-            return "smote"
-        return "none"
-    return "none"
+    if requested == "auto":
+        return "smote"
+    # weighted_sampler only applies to deep models (needs DataLoader sampler)
+    if requested == "weighted_sampler" and model_name not in TRAINABLE_DEEP_MODELS:
+        return "smote"
+    return requested
 
 
 def _build_run_name(model_name: str, strategy: str, run_tag: str | None) -> str:
@@ -549,7 +533,7 @@ def _ensure_data_artifact(
 
     logger.info("Data artifact missing, auto preprocessing...")
     base = [sys.executable]
-    if args.cross_dataset or train_ds != test_ds:
+    if train_ds != test_ds:
         cmd = base + [
             "scripts/preprocess_cross_dataset.py",
             "--config",
@@ -644,6 +628,11 @@ def run_classical_training(
     cfg.model.name = model_name
 
     if imbalance_strategy == "smote":
+        X_train, y_train = apply_smote(X_train, y_train)
+    elif imbalance_strategy == "oversampling":
+        X_train, y_train = apply_oversampling(X_train, y_train)
+    elif imbalance_strategy == "weighted_sampler":
+        logger.warning("weighted_sampler not supported for classical models; falling back to smote")
         X_train, y_train = apply_smote(X_train, y_train)
 
     t0 = time.perf_counter()
@@ -757,7 +746,10 @@ def run_training(
 
     if imbalance_strategy == "smote":
         X_train, y_train = apply_smote(X_train, y_train)
+    elif imbalance_strategy == "oversampling":
+        X_train, y_train = apply_oversampling(X_train, y_train)
 
+    use_weighted_sampler = imbalance_strategy == "weighted_sampler"
     train_loader, val_loader, test_loader = create_dataloaders(
         X_train=X_train,
         X_val=X_val,
@@ -767,10 +759,14 @@ def run_training(
         y_test=y_test,
         batch_size=cfg.data.batch_size,
         num_workers=cfg.data.num_workers,
+        weighted_sampler=use_weighted_sampler,
     )
 
     model = create_model(cfg.model)
-    class_weights = compute_class_weights(y_train) if imbalance_strategy == "class_weights" else None
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info("Model params | total=%d trainable=%d", total_params, trainable_params)
+    class_weights = None
     trainer = Trainer(config=cfg.training, output_dir=output_dir)
     summary = trainer.fit(
         model=model,
@@ -800,6 +796,8 @@ def run_training(
         "data_file": str(data_file),
         "input_dim": cfg.model.input_dim,
         "num_classes": cfg.model.num_classes,
+        "total_params": total_params,
+        "trainable_params": trainable_params,
         "feature_names": feature_names.tolist(),
         "training_summary": asdict(summary),
         "test_metrics": test_result.metrics,
@@ -830,15 +828,14 @@ def run_training(
 def main() -> None:
     args = parse_args()
     if args.one_click:
-        args.all_models = True
+        if not args.models:
+            args.models = "all"
         args.auto_preprocess = True
         args.auto_feature_selection = True
         if not args.force:
             args.skip_existing = True
     if args.force:
         args.skip_existing = False
-    if args.all_models and not args.force:
-        args.skip_existing = True
 
     cfg = load_config(args.config)
     seed_everything(cfg.runtime.seed)
@@ -961,7 +958,7 @@ def main() -> None:
             imbalance_strategy=effective_strategy,
             report_model_name=report_model_name,
             resume_checkpoint=resume_checkpoint,
-            save_paper_artifacts=not args.no_paper_artifacts,
+            save_paper_artifacts=True,
         )
         finished_at = datetime.now().isoformat(timespec="seconds")
         manifest = {

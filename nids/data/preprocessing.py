@@ -351,6 +351,16 @@ def apply_smote(X_train: np.ndarray, y_train: np.ndarray, strategy: str = "auto"
     return smote.fit_resample(X_train, y_train)
 
 
+def apply_oversampling(X_train: np.ndarray, y_train: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Random oversampling: duplicate minority class samples to match majority class size."""
+    try:
+        from imblearn.over_sampling import RandomOverSampler
+    except ImportError as exc:
+        raise ImportError("imblearn is required for oversampling") from exc
+    ros = RandomOverSampler(random_state=42)
+    return ros.fit_resample(X_train, y_train)
+
+
 def apply_undersampling(X_train: np.ndarray, y_train: np.ndarray):
     try:
         from imblearn.under_sampling import RandomUnderSampler

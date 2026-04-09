@@ -69,12 +69,9 @@ def test_legacy_experiment_roots_are_checked_for_resume_checkpoints(tmp_path: Pa
 def test_run_experiments_uses_canonical_train_output_by_default() -> None:
     args = Namespace(
         config="configs/default.yaml",
-        train_output_dir=None,
         max_rows=None,
-        model=None,
         models=None,
-        all_models=False,
-        only_missing=True,
+        skip_existing=True,
         auto_preprocess=True,
         force=False,
         one_click=False,
@@ -94,12 +91,9 @@ def test_run_experiments_uses_canonical_train_output_by_default() -> None:
 def test_laptop_3060_profile_runs_cross_dataset_subset() -> None:
     args = Namespace(
         config="configs/default.yaml",
-        train_output_dir=None,
         max_rows=None,
-        model=None,
         models=None,
-        all_models=False,
-        only_missing=False,
+        skip_existing=False,
         auto_preprocess=False,
         force=False,
         one_click=True,
@@ -120,5 +114,4 @@ def test_laptop_3060_profile_runs_cross_dataset_subset() -> None:
         ("cross_unsw_to_cic", "unsw_nb15", "cicids2017"),
     ]
     assert "--models" in cmd
-    assert "--all-models" not in cmd
     assert cmd[cmd.index("--models") + 1] == "cnn_bilstm_se,random_forest,xgboost"

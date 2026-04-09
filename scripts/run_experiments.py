@@ -28,24 +28,13 @@ def parse_args() -> argparse.Namespace:
         default="artifacts/experiments",
         help="Directory used for experiment summary files such as experiment_status.json",
     )
-    parser.add_argument(
-        "--train-output-dir",
-        default=None,
-        help="Optional explicit root for training artifacts; defaults to the canonical artifacts/<train>_to_<test> layout",
-    )
     parser.add_argument("--max-rows", type=int, default=None)
-    parser.add_argument(
-        "--model",
-        default=None,
-        choices=["cnn_bilstm", "cnn_bilstm_se", "cnn_bilstm_se_topk", "cnn_bilstm_se_fs", "cnn_bilstm_at", "random_forest", "xgboost"],
-    )
     parser.add_argument(
         "--models",
         default=None,
-        help="Comma-separated model names passed through to scripts/train.py",
+        help="Model selection: single name, comma-separated list, or 'all' (e.g. --models cnn_bilstm_se,xgboost)",
     )
-    parser.add_argument("--all-models", action="store_true")
-    parser.add_argument("--only-missing", action="store_true")
+    parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument("--auto-preprocess", action="store_true")
     parser.add_argument(
         "--cross-only",
@@ -75,7 +64,7 @@ def _apply_profile_defaults(args: argparse.Namespace) -> argparse.Namespace:
     resolved = argparse.Namespace(**vars(args))
     if resolved.profile == "laptop_3060":
         resolved.cross_only = True
-        if not resolved.all_models and resolved.model is None and resolved.models is None:
+        if not resolved.models:
             resolved.models = ",".join(LAPTOP_3060_MODELS)
     return resolved
 
@@ -86,21 +75,13 @@ def _resolve_experiments(args: argparse.Namespace) -> list[tuple[str, str, str]]
     return DEFAULT_EXPERIMENTS
 
 
-def _pair_output_dir(train_output_dir: str | None, train_ds: str, test_ds: str) -> Path | None:
-    if train_output_dir is None:
-        return None
-    return Path(train_output_dir) / f"{train_ds}_to_{test_ds}"
-
-
 def _build_train_command(
     args: argparse.Namespace,
     train_ds: str,
     test_ds: str,
 ) -> list[str]:
     one_click = args.one_click
-    has_explicit_model_selection = args.models is not None or args.model is not None
-    all_models = args.all_models or (one_click and not has_explicit_model_selection)
-    only_missing = (args.only_missing or one_click) and (not args.force)
+    skip_existing = (args.skip_existing or one_click) and (not args.force)
     auto_preprocess = args.auto_preprocess or one_click
 
     train_cmd = [
@@ -112,25 +93,18 @@ def _build_train_command(
         train_ds,
         "--test-dataset",
         test_ds,
-        "--cross-dataset",
     ]
 
-    pair_output_dir = _pair_output_dir(args.train_output_dir, train_ds, test_ds)
-    if pair_output_dir is not None:
-        train_cmd += ["--output-dir", str(pair_output_dir)]
     if auto_preprocess:
         train_cmd.append("--auto-preprocess")
     if one_click:
         train_cmd.append("--auto-feature-selection")
     if args.max_rows is not None:
         train_cmd += ["--max-rows", str(args.max_rows)]
-    if all_models:
-        train_cmd.append("--all-models")
-    elif args.models:
-        train_cmd += ["--models", args.models]
-    elif args.model:
-        train_cmd += ["--model", args.model]
-    if only_missing:
+    models = args.models or ("all" if one_click else None)
+    if models:
+        train_cmd += ["--models", models]
+    if skip_existing:
         train_cmd.append("--skip-existing")
     if one_click and not args.force:
         train_cmd.append("--resume")
@@ -151,9 +125,7 @@ def main() -> None:
 
     for exp_name, train_ds, test_ds in experiments:
         one_click = args.one_click
-        has_explicit_model_selection = args.models is not None or args.model is not None
-        all_models = args.all_models or (one_click and not has_explicit_model_selection)
-        only_missing = (args.only_missing or one_click) and (not args.force)
+        skip_existing = (args.skip_existing or one_click) and (not args.force)
         auto_preprocess = args.auto_preprocess or one_click
 
         exp_output_dir = output_dir / exp_name
@@ -191,14 +163,10 @@ def main() -> None:
         results[exp_name] = {
             "preprocess_ok": preprocess_ok,
             "train_ok": train_ok,
-            "all_models": all_models,
-            "only_missing": only_missing,
+            "skip_existing": skip_existing,
             "auto_preprocess": auto_preprocess,
             "profile": args.profile,
-            "models": "all" if all_models else (args.models or args.model),
-            "train_output_dir": str(_pair_output_dir(args.train_output_dir, train_ds, test_ds))
-            if args.train_output_dir
-            else None,
+            "models": args.models or ("all" if one_click else None),
         }
 
     save_json(results, output_dir / "experiment_status.json")
