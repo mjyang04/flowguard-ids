@@ -12,6 +12,7 @@ from tqdm.auto import tqdm
 from nids.config import TrainingConfig
 from nids.evaluation.latency import measure_inference_latency
 from nids.evaluation.metrics import compute_nids_metrics
+from nids.training.auc_loss import pairwise_auc_loss
 from nids.training.callbacks import EarlyStopping
 from nids.training.optimizers import build_optimizer, build_scheduler
 from nids.utils.io import save_json
@@ -153,6 +154,24 @@ class Trainer:
             return (torch.sigmoid(logits) >= 0.5).long()
         return torch.argmax(logits, dim=1)
 
+    def _add_auc_loss(
+        self,
+        loss: torch.Tensor,
+        outputs: torch.Tensor,
+        labels: torch.Tensor,
+        use_auc: bool,
+    ) -> torch.Tensor:
+        """Add pairwise AUC auxiliary loss when enabled."""
+        if not use_auc:
+            return loss
+        auc_l = pairwise_auc_loss(
+            outputs,
+            labels,
+            margin=self.config.auc_loss_margin,
+            num_neg=self.config.auc_loss_num_neg,
+        )
+        return loss + self.config.auc_loss_lambda * auc_l
+
     def train_epoch(
         self,
         model: torch.nn.Module,
@@ -167,6 +186,7 @@ class Trainer:
     ) -> float:
         model.train()
         total_loss = 0.0
+        use_auc = self.config.use_auc_loss and num_classes == 2
 
         iterator = tqdm(
             dataloader,
@@ -192,6 +212,7 @@ class Trainer:
                         loss = criterion(outputs, labels.float())
                     else:
                         loss = criterion(outputs, labels)
+                    loss = self._add_auc_loss(loss, outputs, labels, use_auc)
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), self.config.gradient_clip)
@@ -203,6 +224,7 @@ class Trainer:
                     loss = criterion(outputs, labels.float())
                 else:
                     loss = criterion(outputs, labels)
+                loss = self._add_auc_loss(loss, outputs, labels, use_auc)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), self.config.gradient_clip)
                 optimizer.step()

@@ -43,6 +43,11 @@ training:
   gradient_clip: 1.0
   amp: true
   selection_metric: recall_at_far_1pct
+  use_auc_loss: false
+  auc_loss_lambda: 0.1
+  auc_loss_margin: 1.0
+  auc_loss_num_neg: 5
+  use_platt_calibration: false
   use_tqdm: true
   show_eval_tqdm: false
 

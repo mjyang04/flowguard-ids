@@ -197,6 +197,11 @@ class TrainingConfig:
     gradient_clip: float = 1.0
     amp: bool = True
     selection_metric: str = "avg_attack_recall"
+    use_auc_loss: bool = False
+    auc_loss_lambda: float = 0.1
+    auc_loss_margin: float = 1.0
+    auc_loss_num_neg: int = 5
+    use_platt_calibration: bool = False
     use_tqdm: bool = True
     show_eval_tqdm: bool = False
 
