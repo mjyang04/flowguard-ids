@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         default=None,
-        choices=["cnn_bilstm", "cnn_bilstm_se", "cnn_bilstm_se_topk", "cnn_bilstm_se_fs", "random_forest", "xgboost"],
+        choices=["cnn_bilstm", "cnn_bilstm_se", "cnn_bilstm_se_topk", "cnn_bilstm_se_fs", "cnn_bilstm_at", "random_forest", "xgboost"],
     )
     parser.add_argument(
         "--models",

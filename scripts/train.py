@@ -43,7 +43,7 @@ from nids.utils.visualization import (
 )
 
 TOPK_MODEL_ALIASES = {"cnn_bilstm_se_fs": "cnn_bilstm_se_topk"}
-TRAINABLE_DEEP_MODELS = ["cnn_bilstm", "cnn_bilstm_se", "cnn_bilstm_se_topk"]
+TRAINABLE_DEEP_MODELS = ["cnn_bilstm", "cnn_bilstm_se", "cnn_bilstm_se_topk", "cnn_bilstm_at"]
 CLASSICAL_MODELS = ["random_forest", "xgboost"]
 TRAINABLE_MODELS = TRAINABLE_DEEP_MODELS + CLASSICAL_MODELS
 CLI_MODEL_CHOICES = TRAINABLE_MODELS + list(TOPK_MODEL_ALIASES.keys())
@@ -53,6 +53,7 @@ MODEL_NAME_FOR_RUN = {
     "cnn_bilstm": "CNN-BiLSTM",
     "cnn_bilstm_se": "CNN-BiLSTM-SE",
     "cnn_bilstm_se_topk": "CNN-BiLSTM-SE-TopK",
+    "cnn_bilstm_at": "CNN-BiLSTM-AT",
     "random_forest": "RandomForest",
     "xgboost": "XGBoost",
 }

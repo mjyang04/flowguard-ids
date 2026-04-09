@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from nids.config import ModelConfig
 from nids.models.cnn_bilstm import CNNBiLSTM
+from nids.models.cnn_bilstm_at import CNNBiLSTMAT
 from nids.models.cnn_bilstm_attention import CNNBiLSTMAttention
 from nids.models.cnn_bilstm_se import CNNBiLSTMSE
 
@@ -10,6 +11,7 @@ MODEL_REGISTRY = {
     "cnn_bilstm": CNNBiLSTM,
     "cnn_bilstm_se": CNNBiLSTMSE,
     "cnn_bilstm_attention": CNNBiLSTMAttention,
+    "cnn_bilstm_at": CNNBiLSTMAT,
 }
 
 
@@ -18,6 +20,15 @@ def create_model(config: ModelConfig):
     if key not in MODEL_REGISTRY:
         raise ValueError(f"Unknown model: {config.name}. Available: {list(MODEL_REGISTRY)}")
     model_cls = MODEL_REGISTRY[key]
+
+    # Najar et al. lightweight model uses a different constructor signature
+    if key == "cnn_bilstm_at":
+        return model_cls(
+            input_dim=config.input_dim,
+            num_classes=config.num_classes,
+            dropout=config.dropout,
+        )
+
     kwargs = {
         "input_dim": config.input_dim,
         "num_classes": config.num_classes,
