@@ -17,3 +17,11 @@ except ModuleNotFoundError as exc:
         raise
 else:
     __all__.insert(0, "evaluate_model")
+
+try:
+    from .calibration import PlattCalibrator, collect_logits
+except ModuleNotFoundError as exc:
+    if exc.name != "torch":
+        raise
+else:
+    __all__.extend(["PlattCalibrator", "collect_logits"])
