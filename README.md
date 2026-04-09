@@ -6,10 +6,11 @@ Lightweight IDS research project for graduation design:
 ## Highlights
 
 - Unified preprocessing pipeline for CICIDS2017 and UNSW-NB15 (55-dim shared feature space)
-- 5 supported models:
+- 6 supported models:
   - `cnn_bilstm` — baseline deep model
   - `cnn_bilstm_se` — main model with Squeeze-Excitation attention
-  - `cnn_bilstm_se_topk` (alias: `cnn_bilstm_se_fs`) — main model on SHAP-reduced features
+  - `cnn_bilstm_se_topk` — `cnn_bilstm_se` architecture trained on SHAP-reduced Top-K features
+  - `cnn_bilstm_at` — Najar et al. lightweight CNN-BiLSTM-AT baseline
   - `random_forest` — lightweight classical model
   - `xgboost` — lightweight classical model
 - `cnn_bilstm_attention` is kept in code but excluded from current training commands
@@ -54,6 +55,7 @@ flowguard-ids/
 |   |-- models/                           # Deep models, classical models, model registry
 |   |   |-- cnn_bilstm.py                # Baseline CNN-BiLSTM
 |   |   |-- cnn_bilstm_se.py             # Main model with SE attention
+|   |   |-- cnn_bilstm_at.py            # Najar et al. CNN-BiLSTM-AT lightweight model
 |   |   |-- cnn_bilstm_attention.py      # Variant with attention (excluded from training)
 |   |   |-- classical.py                  # Random Forest, XGBoost wrappers
 |   |   |-- base.py                       # Abstract base model interface
@@ -82,7 +84,7 @@ flowguard-ids/
 |   |-- preprocess_cross_dataset.py       # Cross-dataset preprocessing
 |   |-- train.py                          # Train one model / all models / one-click
 |   |-- train_lightweight.py              # Retrain lightweight final model from Top-K features
-|   |-- run_experiments.py                # Batch experiment runner (3 settings)
+|   |-- run_experiments.py                # Batch experiment runner (same + cross)
 |   |-- evaluate.py                       # Evaluate saved model on test artifact
 |   |-- shap_analysis.py                  # SHAP explainability workflow
 |   |-- feature_selection.py              # Top-K/cumulative feature selection
@@ -151,11 +153,11 @@ If your path is different, edit `data.data_dir` in config files.
 
 ## Quick Start
 
-### 1) One-click training (single train/test pair, all 5 models)
+### 1) One-click training (single train/test pair, all models)
 
 This command will:
 - auto preprocess if needed
-- train all 5 models
+- train all supported models (or selected subset via `--models`)
 - skip models already trained
 - for `cnn_bilstm_se_topk`, auto-run SHAP + Top-K feature selection if reduced data is missing
 
@@ -169,14 +171,13 @@ Force full retraining:
 python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --one-click --force
 ```
 
-### 2) One-click experiments (3 dataset settings x 5 models)
+### 2) One-click experiments (2 dataset settings x all models)
 
 Runs:
-- `cicids2017 -> cicids2017`
-- `cicids2017 -> unsw_nb15`
-- `unsw_nb15 -> cicids2017`
+- `cicids2017 -> cicids2017` (same-dataset baseline)
+- `cicids2017 -> unsw_nb15` (cross-dataset generalization)
 
-Each setting trains all 5 models and skips existing results by default:
+Each setting trains all supported models and skips existing results by default:
 
 ```bash
 python scripts/run_experiments.py --config configs/default.yaml --one-click
@@ -201,18 +202,12 @@ python scripts/run_experiments.py --config configs/default.yaml --one-click --fo
 
 This preset keeps the baseline config from `configs/default.yaml` intact, including `batch_size: 512`, but reduces total work by:
 
-- running only cross-dataset experiments
+- running same-dataset (`cicids2017 -> cicids2017`) and cross-dataset (`cicids2017 -> unsw_nb15`) experiments
 - selecting `cnn_bilstm_se`, `random_forest`, and `xgboost`
 - keeping one-click conveniences such as auto preprocess, skip existing results, and resume
 
 ```bash
 python scripts/run_experiments.py --config configs/default.yaml --profile laptop_3060 --one-click
-```
-
-If you want the same cross-dataset-only behavior without the preset, you can also select it manually:
-
-```bash
-python scripts/run_experiments.py --config configs/default.yaml --cross-only --models cnn_bilstm_se,random_forest,xgboost --one-click
 ```
 
 ### 3) Final lightweight model (your deliverable model)
@@ -247,7 +242,7 @@ python scripts/train.py --config configs/default.yaml --cross-dataset --train-da
 Train all models manually:
 
 ```bash
-python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --all-models --auto-preprocess
+python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --models all --auto-preprocess
 ```
 
 Resume interrupted deep-model training (continue from latest checkpoint of that model):

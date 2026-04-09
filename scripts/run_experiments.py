@@ -15,7 +15,6 @@ from nids.utils.process import run_command
 DEFAULT_EXPERIMENTS = [
     ("same_cicids", "cicids2017", "cicids2017"),
     ("cross_cic_to_unsw", "cicids2017", "unsw_nb15"),
-    ("cross_unsw_to_cic", "unsw_nb15", "cicids2017"),
 ]
 LAPTOP_3060_MODELS = ["cnn_bilstm_se", "random_forest", "xgboost"]
 
@@ -39,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cross-only",
         action="store_true",
-        help="Run only cross-dataset experiments (skip same-dataset reference runs)",
+        help="Run only cross-dataset experiment (cicids2017 -> unsw_nb15), skip same-dataset reference",
     )
     parser.add_argument(
         "--profile",
