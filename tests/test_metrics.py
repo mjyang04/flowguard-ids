@@ -13,6 +13,7 @@ def test_compute_nids_metrics_includes_binary_score_metrics():
     for key in [
         "pr_auc",
         "roc_auc",
+        "ece",
         "best_f1",
         "best_f1_threshold",
         "recall_at_far_1pct",
@@ -24,11 +25,30 @@ def test_compute_nids_metrics_includes_binary_score_metrics():
 
     assert 0.0 <= metrics["pr_auc"] <= 1.0
     assert 0.0 <= metrics["roc_auc"] <= 1.0
+    assert 0.0 <= metrics["ece"] <= 1.0
     assert 0.0 <= metrics["best_f1"] <= 1.0
     assert 0.0 <= metrics["best_f1_threshold"] <= 1.0
     assert 0.0 <= metrics["threshold_at_far_1pct"] <= 1.0
     assert 0.0 <= metrics["threshold_at_far_5pct"] <= 1.0
     assert metrics["recall_at_far_5pct"] >= metrics["recall_at_far_1pct"]
+
+
+def test_mcc_included_in_metrics():
+    y_true = np.array([0, 0, 1, 1], dtype=np.int64)
+    y_pred = np.array([0, 1, 1, 1], dtype=np.int64)
+    metrics = compute_nids_metrics(y_true, y_pred)
+    assert "mcc" in metrics
+    assert -1.0 <= metrics["mcc"] <= 1.0
+
+
+def test_ece_well_calibrated_model():
+    """A perfectly calibrated model should have low ECE."""
+    y_true = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=np.int64)
+    # Scores closely match true frequencies
+    y_score = np.array([0.1, 0.1, 0.2, 0.2, 0.3, 0.7, 0.8, 0.8, 0.9, 0.9], dtype=np.float64)
+    y_pred = (y_score >= 0.5).astype(np.int64)
+    metrics = compute_nids_metrics(y_true, y_pred, y_score=y_score)
+    assert metrics["ece"] < 0.3  # reasonably calibrated
 
 
 def test_duplicate_scores_threshold_sweep():

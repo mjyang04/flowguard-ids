@@ -177,6 +177,7 @@ class ModelConfig:
     dropout: float = 0.3
     bidirectional: bool = True
     use_se: bool = True
+    se_reduction: int = 16
     use_attention: bool = False
 
 
@@ -197,6 +198,10 @@ class TrainingConfig:
     gradient_clip: float = 1.0
     amp: bool = True
     selection_metric: str = "avg_attack_recall"
+    loss_type: str = "bce"  # bce | focal
+    focal_alpha: float = 0.25
+    focal_gamma: float = 2.0
+    label_smoothing: float = 0.0
     use_auc_loss: bool = False
     auc_loss_lambda: float = 0.1
     auc_loss_margin: float = 1.0

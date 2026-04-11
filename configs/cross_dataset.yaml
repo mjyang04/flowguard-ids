@@ -47,12 +47,12 @@ training:
   loss_type: bce
   focal_alpha: 0.25
   focal_gamma: 2.0
-  label_smoothing: 0.0
-  use_auc_loss: false
+  label_smoothing: 0.05
+  use_auc_loss: true
   auc_loss_lambda: 0.1
   auc_loss_margin: 1.0
   auc_loss_num_neg: 5
-  use_platt_calibration: false
+  use_platt_calibration: true
   use_tqdm: true
   show_eval_tqdm: false
 

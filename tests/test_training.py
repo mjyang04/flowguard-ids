@@ -58,3 +58,34 @@ def test_trainer_fit_runs(tmp_path: Path):
     assert "accuracy" in result.metrics
     assert "pr_auc" in result.metrics
     assert "recall_at_far_1pct" in result.metrics
+    assert "mcc" in result.metrics
+    assert "ece" in result.metrics
+
+
+def test_trainer_focal_loss(tmp_path: Path):
+    rng = np.random.default_rng(42)
+    X = rng.normal(size=(120, 32)).astype(np.float32)
+    y = (X[:, 0] + X[:, 1] > 0).astype(np.int64)
+
+    X_train, X_val = X[:80], X[80:100]
+    y_train, y_val = y[:80], y[80:100]
+
+    train_loader, val_loader, _ = create_dataloaders(
+        X_train, X_val, X[100:], y_train, y_val, y[100:], batch_size=16, num_workers=0
+    )
+    model = CNNBiLSTMSE(
+        input_dim=32, num_classes=2, conv_channels=[8, 16],
+        lstm_hidden_size=16, lstm_num_layers=1, dropout=0.1,
+    )
+    trainer = Trainer(
+        TrainingConfig(
+            num_epochs=2, learning_rate=1e-3, optimizer="adam",
+            scheduler="plateau", amp=False,
+            selection_metric="pr_auc",
+            loss_type="focal", focal_alpha=0.25, focal_gamma=2.0,
+            label_smoothing=0.05,
+        ),
+        output_dir=tmp_path,
+    )
+    summary = trainer.fit(model, train_loader, val_loader, num_classes=2)
+    assert Path(summary.best_model_path).exists()

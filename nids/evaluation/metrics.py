@@ -5,8 +5,25 @@ from sklearn.metrics import (
     average_precision_score,
     classification_report,
     confusion_matrix,
+    matthews_corrcoef,
     roc_auc_score,
 )
+
+
+def _expected_calibration_error(
+    y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10
+) -> float:
+    """Compute Expected Calibration Error (ECE)."""
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    ece = 0.0
+    for i in range(n_bins):
+        mask = (y_prob > bin_edges[i]) & (y_prob <= bin_edges[i + 1])
+        if mask.sum() == 0:
+            continue
+        bin_acc = y_true[mask].mean()
+        bin_conf = y_prob[mask].mean()
+        ece += mask.sum() / len(y_true) * abs(bin_acc - bin_conf)
+    return float(ece)
 
 
 def _coerce_binary_scores(y_score: np.ndarray | None) -> np.ndarray | None:
@@ -99,6 +116,7 @@ def _compute_binary_score_metrics(
     return {
         "pr_auc": float(average_precision_score(y_true_bin, scores)),
         "roc_auc": float(roc_auc_score(y_true_bin, scores)),
+        "ece": _expected_calibration_error(y_true_bin, scores),
         "best_f1": best_f1_val,
         "best_f1_threshold": best_f1_thr,
         "recall_at_far_1pct": recall_1,
@@ -140,6 +158,7 @@ def compute_nids_metrics(
     metrics = {
         "accuracy": float(report.get("accuracy", 0.0)),
         "macro_f1": float(report.get("macro avg", {}).get("f1-score", 0.0)),
+        "mcc": float(matthews_corrcoef(y_true, y_pred)),
         "avg_attack_recall": avg_attack_recall,
         "attack_macro_precision": attack_macro_precision,
         "benign_false_alarm_rate": float(benign_false_alarms / benign_total),

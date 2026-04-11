@@ -14,6 +14,7 @@ from nids.evaluation.latency import measure_inference_latency
 from nids.evaluation.metrics import compute_nids_metrics
 from nids.training.auc_loss import pairwise_auc_loss
 from nids.training.callbacks import EarlyStopping
+from nids.training.focal_loss import BinaryFocalLoss
 from nids.training.optimizers import build_optimizer, build_scheduler
 from nids.utils.io import save_json
 from nids.utils.logging import get_logger
@@ -95,12 +96,14 @@ class Trainer:
             "avg_attack_recall={avg_attack_recall:.4f} "
             "attack_macro_precision={attack_macro_precision:.4f} "
             "benign_false_alarm_rate={benign_false_alarm_rate:.4f} "
-            "attack_miss_rate={attack_miss_rate:.4f}"
+            "mcc={mcc:.4f} "
+            "ece={ece:.4f}"
         ).format(
             avg_attack_recall=float(metrics.get("avg_attack_recall", 0.0)),
             attack_macro_precision=float(metrics.get("attack_macro_precision", 0.0)),
             benign_false_alarm_rate=float(metrics.get("benign_false_alarm_rate", 0.0)),
-            attack_miss_rate=float(metrics.get("attack_miss_rate", 0.0)),
+            mcc=float(metrics.get("mcc", 0.0)),
+            ece=float(metrics.get("ece", 0.0)),
         )
 
     def _log_training_setup(
@@ -136,18 +139,35 @@ class Trainer:
     def _build_criterion(
         self, num_classes: int, class_weights: np.ndarray | None, device: torch.device
     ) -> torch.nn.Module:
+        loss_type = getattr(self.config, "loss_type", "bce")
+        label_smoothing = getattr(self.config, "label_smoothing", 0.0)
+
         if num_classes == 2:
             pos_weight = None
             if class_weights is not None and len(class_weights) >= 2 and class_weights[0] > 0:
                 pos_weight = torch.tensor(
                     [float(class_weights[1] / class_weights[0])], dtype=torch.float32, device=device
                 )
+
+            if loss_type == "focal":
+                self.logger.info(
+                    "Using Focal Loss | alpha=%.2f gamma=%.2f",
+                    self.config.focal_alpha, self.config.focal_gamma,
+                )
+                return BinaryFocalLoss(
+                    alpha=self.config.focal_alpha,
+                    gamma=self.config.focal_gamma,
+                    pos_weight=pos_weight,
+                )
             return torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
         weight_tensor = None
         if class_weights is not None:
             weight_tensor = torch.tensor(class_weights, dtype=torch.float32, device=device)
-        return torch.nn.CrossEntropyLoss(weight=weight_tensor)
+        return torch.nn.CrossEntropyLoss(
+            weight=weight_tensor,
+            label_smoothing=label_smoothing,
+        )
 
     def _predict_from_logits(self, logits: torch.Tensor, num_classes: int) -> torch.Tensor:
         if num_classes == 2:
@@ -187,6 +207,7 @@ class Trainer:
         model.train()
         total_loss = 0.0
         use_auc = self.config.use_auc_loss and num_classes == 2
+        label_smoothing = getattr(self.config, "label_smoothing", 0.0)
 
         iterator = tqdm(
             dataloader,
@@ -205,13 +226,16 @@ class Trainer:
             labels = labels.to(device)
             optimizer.zero_grad(set_to_none=True)
 
+            # Apply label smoothing for binary targets
+            if num_classes == 2 and label_smoothing > 0:
+                smooth_labels = labels.float() * (1 - label_smoothing) + 0.5 * label_smoothing
+            else:
+                smooth_labels = labels.float() if num_classes == 2 else labels
+
             if scaler is not None:
                 with torch.autocast(device_type=device.type, enabled=True):
                     outputs = model(features)
-                    if num_classes == 2:
-                        loss = criterion(outputs, labels.float())
-                    else:
-                        loss = criterion(outputs, labels)
+                    loss = criterion(outputs, smooth_labels)
                     loss = self._add_auc_loss(loss, outputs, labels, use_auc)
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -220,10 +244,7 @@ class Trainer:
                 scaler.update()
             else:
                 outputs = model(features)
-                if num_classes == 2:
-                    loss = criterion(outputs, labels.float())
-                else:
-                    loss = criterion(outputs, labels)
+                loss = criterion(outputs, smooth_labels)
                 loss = self._add_auc_loss(loss, outputs, labels, use_auc)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), self.config.gradient_clip)

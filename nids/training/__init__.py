@@ -9,6 +9,14 @@ else:
     __all__.append("pairwise_auc_loss")
 
 try:
+    from .focal_loss import BinaryFocalLoss
+except ModuleNotFoundError as exc:
+    if exc.name != "torch":
+        raise
+else:
+    __all__.append("BinaryFocalLoss")
+
+try:
     from .trainer import EvaluationResult, Trainer, TrainingSummary
 except ModuleNotFoundError as exc:
     if exc.name != "torch":

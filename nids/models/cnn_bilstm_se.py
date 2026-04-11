@@ -85,6 +85,7 @@ class CNNBiLSTMSE(BaseNIDSModel):
         bidirectional: bool = True,
         use_attention: bool = False,
         use_se: bool = True,
+        se_reduction: int = 16,
     ):
         super().__init__()
         conv_kernel_sizes = conv_kernel_sizes or [3] * len(conv_channels)
@@ -103,6 +104,7 @@ class CNNBiLSTMSE(BaseNIDSModel):
         self.bidirectional = bidirectional
         self.use_attention = use_attention
         self.use_se = use_se
+        self.se_reduction = se_reduction
 
         layers: list[nn.Module] = []
         in_channels = 1
@@ -119,7 +121,7 @@ class CNNBiLSTMSE(BaseNIDSModel):
                 )
             )
             if use_se:
-                layers.append(SqueezeExcitation(out_channels))
+                layers.append(SqueezeExcitation(out_channels, reduction=se_reduction))
             in_channels = out_channels
         self.feature_extractor = nn.Sequential(*layers)
 
@@ -171,4 +173,5 @@ class CNNBiLSTMSE(BaseNIDSModel):
             "bidirectional": self.bidirectional,
             "use_attention": self.use_attention,
             "use_se": self.use_se,
+            "se_reduction": self.se_reduction,
         }

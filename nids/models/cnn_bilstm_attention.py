@@ -18,6 +18,7 @@ class CNNBiLSTMAttention(CNNBiLSTMSE):
         dropout: float = 0.3,
         bidirectional: bool = True,
         use_se: bool = True,
+        se_reduction: int = 16,
     ):
         super().__init__(
             input_dim=input_dim,
@@ -31,4 +32,5 @@ class CNNBiLSTMAttention(CNNBiLSTMSE):
             bidirectional=bidirectional,
             use_attention=True,
             use_se=use_se,
+            se_reduction=se_reduction,
         )

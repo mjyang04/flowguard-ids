@@ -43,8 +43,10 @@ def create_model(config: ModelConfig):
     if key == "cnn_bilstm_se":
         kwargs["use_attention"] = config.use_attention
         kwargs["use_se"] = config.use_se
+        kwargs["se_reduction"] = getattr(config, "se_reduction", 16)
     elif key == "cnn_bilstm":
         kwargs["use_attention"] = config.use_attention
     elif key == "cnn_bilstm_attention":
         kwargs["use_se"] = config.use_se
+        kwargs["se_reduction"] = getattr(config, "se_reduction", 16)
     return model_cls(**kwargs)

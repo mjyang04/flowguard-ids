@@ -15,6 +15,7 @@ from nids.utils.process import run_command
 DEFAULT_EXPERIMENTS = [
     ("same_cicids", "cicids2017", "cicids2017"),
     ("cross_cic_to_unsw", "cicids2017", "unsw_nb15"),
+    ("cross_unsw_to_cic", "unsw_nb15", "cicids2017"),
 ]
 LAPTOP_3060_MODELS = ["cnn_bilstm_se", "random_forest", "xgboost"]
 
@@ -70,7 +71,7 @@ def _apply_profile_defaults(args: argparse.Namespace) -> argparse.Namespace:
 
 def _resolve_experiments(args: argparse.Namespace) -> list[tuple[str, str, str]]:
     if args.cross_only:
-        return DEFAULT_EXPERIMENTS[1:]
+        return [e for e in DEFAULT_EXPERIMENTS if e[1] != e[2]]
     return DEFAULT_EXPERIMENTS
 
 
