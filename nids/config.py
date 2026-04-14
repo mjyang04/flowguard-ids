@@ -142,7 +142,7 @@ def _default_unsw_renaming_map() -> dict[str, str]:
         "dinpkt": "bwd_iat_mean",
         "sjit": "fwd_iat_std",
         "djit": "bwd_iat_std",
-        "ct_src_dport_ltm": "dst_port",
+        "dsport": "dst_port",
     }
 
 
@@ -153,7 +153,7 @@ class DataConfig:
     train_dataset: str = "cicids2017"
     test_dataset: str = "unsw_nb15"
     data_percentage: float = 100.0
-    batch_size: int = 128
+    batch_size: int = 512
     num_workers: int = 0
     train_ratio: float = 0.8
     val_ratio: float = 0.1
@@ -186,7 +186,7 @@ class TrainingConfig:
     num_epochs: int = 30
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
-    optimizer: str = "adam"
+    optimizer: str = "adamw"
     use_scheduler: bool = True
     scheduler: str = "plateau"
     scheduler_factor: float = 0.5
@@ -197,7 +197,7 @@ class TrainingConfig:
     early_stopping_delta: float = 1e-4
     gradient_clip: float = 1.0
     amp: bool = True
-    selection_metric: str = "avg_attack_recall"
+    selection_metric: str = "recall_at_far_1pct"
     loss_type: str = "bce"  # bce | focal
     focal_alpha: float = 0.25
     focal_gamma: float = 2.0

@@ -137,7 +137,6 @@ class CNNBiLSTMSE(BaseNIDSModel):
         lstm_output_dim = lstm_hidden_size * (2 if bidirectional else 1)
         self.attention = AttentionPooling(lstm_output_dim) if use_attention else None
         self.classifier = nn.Sequential(
-            nn.Dropout(dropout),
             nn.Linear(lstm_output_dim, lstm_output_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
