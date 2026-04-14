@@ -1,9 +1,9 @@
 """Focal Loss for class-imbalanced binary and multi-class classification.
 
-Based on Lin et al. (2017) "Focal Loss for Dense Object Detection".
-Reduces the relative loss for well-classified examples, focusing training
-on hard negatives. Widely adopted in IDS literature (Zhang et al. 2025,
-Li & Li 2025 TCNSE) for handling class imbalance.
+Based on Lin, Goyal, Girshick, He, and Dollár (2017) "Focal Loss for
+Dense Object Detection". Reduces the relative loss for well-classified
+examples, focusing training on hard negatives. Widely adopted in IDS
+literature for handling class imbalance.
 """
 
 from __future__ import annotations

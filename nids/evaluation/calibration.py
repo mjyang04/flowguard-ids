@@ -1,8 +1,9 @@
 """Platt scaling calibration for cross-dataset probability reliability.
 
-Based on Xin & Xu (2025) "Cross-Dataset Transformer-IDS with Calibration
-and AUC Optimization". Platt scaling fits a logistic regression on raw
-model logits using held-out validation data:
+Based on Platt (1999) "Probabilistic Outputs for Support Vector Machines"
+and the calibration analysis of Guo, Pleiss, Sun, and Weinberger (2017)
+"On Calibration of Modern Neural Networks". Platt scaling fits a logistic
+regression on raw model logits using held-out validation data:
 
     p_calibrated = sigmoid(A * logit + B)
 

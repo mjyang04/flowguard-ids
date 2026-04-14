@@ -1,8 +1,9 @@
 """Pairwise AUC surrogate loss for cross-dataset ranking improvement.
 
-Based on Xin & Xu (2025) "Cross-Dataset Transformer-IDS with Calibration
-and AUC Optimization", which combines BCE with a hinge-based pairwise loss
-that optimizes the Wilcoxon-Mann-Whitney statistic.
+Based on Yan, Dodier, Mozer, and Wolniewicz (2003) "Optimizing Classifier
+Performance via an Approximation to the Wilcoxon-Mann-Whitney Statistic",
+which proposes a hinge-based pairwise loss that directly optimizes a
+surrogate of the ROC-AUC statistic.
 
 The auxiliary loss encourages attack samples to have higher scores than
 benign samples, improving ranking performance across decision thresholds.
