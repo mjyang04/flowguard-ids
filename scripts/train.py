@@ -69,10 +69,9 @@ STRATEGY_NAME_FOR_RUN = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train NIDS models")
     parser.add_argument("--config", default="configs/default.yaml")
-    parser.add_argument("--data-file", default=None)
-    parser.add_argument("--output-dir", default=None)
     parser.add_argument("--train-dataset", default=None, choices=["cicids2017", "unsw_nb15"])
     parser.add_argument("--test-dataset", default=None, choices=["cicids2017", "unsw_nb15"])
+    parser.add_argument("--output-dir", default=None, help="Override base artifact root (multi-seed uses this)")
     parser.add_argument(
         "--models",
         default=None,
@@ -81,47 +80,92 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--one-click",
         action="store_true",
-        help="One-click training: all models + auto preprocessing + skip finished models",
+        help="One-click training: all registered models, skip finished runs, auto-preprocess when data is missing",
     )
-    parser.add_argument("--auto-preprocess", action="store_true")
-    parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Force full retraining of all selected models (disable skip-existing)",
+        help="Force full retraining of all selected models (overrides the default skip-existing behavior)",
     )
     parser.add_argument(
-        "--imbalance-strategy",
-        default="auto",
-        choices=IMBALANCE_STRATEGIES,
-        help="Imbalance handling strategy (auto=smote)",
-    )
-    parser.add_argument(
-        "--run-tag",
+        "--seed",
+        type=int,
         default=None,
-        help="Optional extra tag appended to run directory name (for traceability)",
+        help="Override cfg.runtime.seed for this run (used for multi-seed experiments)",
     )
     parser.add_argument(
         "--resume",
         action="store_true",
         help="Resume interrupted deep-model training from checkpoint_last.pt when available",
     )
+
+    # Cross-dataset enhancement block (formerly split across cross_dataset.yaml).
+    parser.add_argument(
+        "--cross-dataset-enhancements",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Enable (or disable with --no-cross-dataset-enhancements) the cross-dataset bundle: "
+            "label smoothing, AUC auxiliary loss, and Platt calibration. "
+            "Leave unset to follow configs/default.yaml."
+        ),
+    )
+    parser.add_argument(
+        "--label-smoothing",
+        type=float,
+        default=None,
+        help="Override cfg.training.label_smoothing (fine-grained ablation)",
+    )
+    parser.add_argument(
+        "--auc-loss",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override cfg.training.use_auc_loss",
+    )
+    parser.add_argument(
+        "--platt-calibration",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override cfg.training.use_platt_calibration",
+    )
+
+    # Advanced / debugging controls.
+    parser.add_argument("--data-file", default=None, help="Advanced: explicit preprocessed .npz path")
+    parser.add_argument(
+        "--imbalance-strategy",
+        default="auto",
+        choices=IMBALANCE_STRATEGIES,
+        help="Imbalance handling strategy (default 'auto' == smote; 'weighted_sampler' for deep models)",
+    )
+    parser.add_argument(
+        "--run-tag",
+        default=None,
+        help="Advanced: extra tag appended to run directory name",
+    )
     parser.add_argument(
         "--resume-run-dir",
         default=None,
-        help="Explicit run directory to resume (single-model mode recommended)",
+        help="Advanced: explicit run directory to resume (single-model mode)",
     )
     parser.add_argument(
-        "--auto-feature-selection",
-        action="store_true",
-        help="Auto-run SHAP + Top-K feature selection when training cnn_bilstm_se_topk if reduced data is missing",
+        "--reduced-data",
+        default=None,
+        help="Advanced: explicit reduced npz path for cnn_bilstm_se_topk",
     )
-    parser.add_argument("--shap-dir", default="artifacts/shap")
-    parser.add_argument("--feature-selection-dir", default="artifacts/feature_selection")
-    parser.add_argument("--reduced-data", default=None, help="Optional reduced npz path for cnn_bilstm_se_topk")
-    parser.add_argument("--top-k", type=int, default=None, help="Top-K used for feature selection")
-    parser.add_argument("--max-rows", type=int, default=None)
-    return parser.parse_args()
+    parser.add_argument("--max-rows", type=int, default=None, help="Advanced: cap preprocessed rows (debugging)")
+
+    args = parser.parse_args()
+    # The preprocessing / feature-selection / skip-existing flags are no longer
+    # exposed individually — they are part of the default behaviour. --force is
+    # the escape hatch for users who need to rerun a finished model.
+    args.auto_preprocess = True
+    args.auto_feature_selection = True
+    args.skip_existing = not args.force
+    # SHAP + feature-selection artifact roots are fixed under cfg.runtime.output_dir.
+    args.shap_dir = "artifacts/shap"
+    args.feature_selection_dir = "artifacts/feature_selection"
+    args.top_k = None
+    return args
 
 
 def _resolve_data_file(cfg: ExperimentConfig, args: argparse.Namespace) -> Path:
@@ -309,23 +353,12 @@ def _ensure_topk_data_artifact(
     if _reduced_data_valid(reduced_data, top_k):
         return reduced_data
 
-    if not args.auto_feature_selection:
-        raise FileNotFoundError(
-            f"Reduced data for cnn_bilstm_se_topk not found: {reduced_data}. "
-            "Run SHAP + feature_selection first or enable --auto-feature-selection."
-        )
-
     feature_names = shap_dir / "feature_names.npy"
     if not _shared_topk_assets_valid(selected_idx, feature_names, top_k):
         ref_train = cfg.shap.reference_train_dataset
         ref_test = cfg.shap.reference_test_dataset
         ref_data_file = Path(cfg.data.processed_dir) / f"cross_{ref_train}_to_{ref_test}.npz"
         if not ref_data_file.exists():
-            if not args.auto_preprocess:
-                raise FileNotFoundError(
-                    f"Shared SHAP reference data not found: {ref_data_file}. "
-                    "Enable --auto-preprocess or preprocess the reference pair first."
-                )
             run_command(
                 [
                     sys.executable,
@@ -525,11 +558,6 @@ def _ensure_data_artifact(
 
     if args.data_file and not data_file.exists():
         raise FileNotFoundError(f"Data file not found: {data_file}")
-
-    if not args.auto_preprocess:
-        raise FileNotFoundError(
-            f"Data file not found: {data_file}. Use --auto-preprocess or run preprocess scripts first."
-        )
 
     logger.info("Data artifact missing, auto preprocessing...")
     base = [sys.executable]
@@ -825,19 +853,41 @@ def run_training(
     return report
 
 
+def _apply_cross_dataset_enhancements(cfg: ExperimentConfig, args: argparse.Namespace) -> None:
+    """Translate the cross-dataset CLI overrides into cfg.training mutations.
+
+    Precedence (highest last): config file < --cross-dataset-enhancements bundle <
+    fine-grained flags (--label-smoothing / --auc-loss / --platt-calibration).
+    """
+
+    if args.cross_dataset_enhancements is True:
+        cfg.training.label_smoothing = 0.05
+        cfg.training.use_auc_loss = True
+        cfg.training.use_platt_calibration = True
+    elif args.cross_dataset_enhancements is False:
+        cfg.training.label_smoothing = 0.0
+        cfg.training.use_auc_loss = False
+        cfg.training.use_platt_calibration = False
+
+    if args.label_smoothing is not None:
+        cfg.training.label_smoothing = float(args.label_smoothing)
+    if args.auc_loss is not None:
+        cfg.training.use_auc_loss = bool(args.auc_loss)
+    if args.platt_calibration is not None:
+        cfg.training.use_platt_calibration = bool(args.platt_calibration)
+
+
 def main() -> None:
     args = parse_args()
-    if args.one_click:
-        if not args.models:
-            args.models = "all"
-        args.auto_preprocess = True
-        args.auto_feature_selection = True
-        if not args.force:
-            args.skip_existing = True
-    if args.force:
-        args.skip_existing = False
+    if args.one_click and not args.models:
+        args.models = "all"
 
     cfg = load_config(args.config)
+    if args.seed is not None:
+        cfg.runtime.seed = int(args.seed)
+        if not args.run_tag:
+            args.run_tag = f"seed{int(args.seed)}"
+    _apply_cross_dataset_enhancements(cfg, args)
     seed_everything(cfg.runtime.seed)
 
     train_ds = args.train_dataset or cfg.data.train_dataset
@@ -947,6 +997,9 @@ def main() -> None:
             run_output_dir.mkdir(parents=True, exist_ok=True)
 
         cfg_local = load_config(args.config)
+        if args.seed is not None:
+            cfg_local.runtime.seed = int(args.seed)
+        _apply_cross_dataset_enhancements(cfg_local, args)
         cfg_local.data.train_dataset = train_ds
         cfg_local.data.test_dataset = test_ds
         started_at = datetime.now().isoformat(timespec="seconds")
@@ -976,6 +1029,7 @@ def main() -> None:
             "resumed_from_checkpoint": resumed_from_checkpoint,
             "resume_checkpoint": str(resume_checkpoint) if resume_checkpoint is not None else None,
             "report_path": str(run_output_dir / "report.json"),
+            "seed": int(cfg_local.runtime.seed),
         }
         save_json(manifest, run_output_dir / "run_manifest.json")
         _register_run(model_root, run_output_dir, manifest)

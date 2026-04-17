@@ -1148,10 +1148,7 @@ flowguard-ids/
 │   └── test_metrics.py
 │
 ├── configs/                       # 配置文件
-│   ├── default.yaml               # 默认配置（推荐起点）
-│   ├── experiment_cnn_bilstm_se.yaml  # 论文实验配置
-│   ├── cicids2017.yaml            # 同数据集配置
-│   └── unsw_nb15.yaml             # 同数据集配置
+│   └── default.yaml               # 唯一配置；跨数据集增强通过 --cross-dataset-enhancements 启用
 │
 ├── Dockerfile                     # CUDA 训练环境
 ├── requirements.txt
@@ -1594,7 +1591,7 @@ def monitor_gpu_memory():
 ### A. 配置示例
 
 ```yaml
-# configs/experiment_cnn_bilstm_se.yaml
+# configs/default.yaml (唯一配置；跨数据集增强通过 CLI --cross-dataset-enhancements 启用)
 data:
   train_dataset: cicids2017
   test_dataset: unsw_nb15
@@ -1636,8 +1633,14 @@ shap:
 python scripts/preprocess.py --dataset cicids2017
 python scripts/preprocess_cross_dataset.py
 
-# 训练
-python scripts/train.py --config configs/experiment_cnn_bilstm_se.yaml
+# 训练（同数据集）
+python scripts/train.py --config configs/default.yaml --one-click
+
+# 训练（跨数据集：自动启用 AUC+Platt+LS 增强）
+python scripts/train.py --config configs/default.yaml --train-dataset cicids2017 --test-dataset unsw_nb15 --one-click --cross-dataset-enhancements
+
+# 批量实验（run_experiments.py 会在跨数据集方向自动加 --cross-dataset-enhancements）
+python scripts/run_experiments.py --config configs/default.yaml --profile laptop_3060 --one-click
 
 # SHAP分析
 python scripts/shap_analysis.py --model artifacts/best_model.pt

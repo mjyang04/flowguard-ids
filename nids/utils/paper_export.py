@@ -15,11 +15,26 @@ from nids.utils.visualization import (
     plot_shap_top_features,
 )
 
+SEED_AGG_METRICS = [
+    "recall_at_far_1pct",
+    "recall_at_far_5pct",
+    "pr_auc",
+    "roc_auc",
+    "best_f1",
+    "accuracy",
+    "macro_f1",
+    "benign_false_alarm_rate",
+    "mean_latency_ms",
+    "p50_latency_ms",
+    "p99_latency_ms",
+]
+
 SUMMARY_COLUMNS = [
     "dataset_pair",
     "train_dataset",
     "test_dataset",
     "model",
+    "seed",
     "imbalance_strategy",
     "selection_metric",
     "selection_metric_value",
@@ -156,12 +171,21 @@ def _collect_report_rows(artifacts_root: Path) -> list[dict[str, Any]]:
         )
         feature_names = report.get("feature_names") or []
 
+        raw_seed = manifest.get("seed")
+        if raw_seed is None:
+            raw_seed = (config.get("runtime", {}) or {}).get("seed")
+        try:
+            seed_value = int(raw_seed) if raw_seed is not None else -1
+        except (TypeError, ValueError):
+            seed_value = -1
+
         rows.append(
             {
                 "dataset_pair": dataset_pair,
                 "train_dataset": train_dataset,
                 "test_dataset": test_dataset,
                 "model": str(report.get("model") or manifest.get("model") or "unknown"),
+                "seed": seed_value,
                 "imbalance_strategy": str(
                     report.get("imbalance_strategy") or manifest.get("imbalance_strategy") or "unknown"
                 ),
@@ -306,6 +330,31 @@ def _write_csv(df: pd.DataFrame, path: Path, columns: list[str]) -> None:
     df.loc[:, columns].to_csv(path, index=False, encoding="utf-8")
 
 
+def _build_seed_aggregated_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate per-seed runs into mean ± std for the main paper tables."""
+
+    if df.empty:
+        return pd.DataFrame()
+
+    group_keys = ["dataset_pair", "train_dataset", "test_dataset", "model", "imbalance_strategy"]
+    available_metrics = [m for m in SEED_AGG_METRICS if m in df.columns]
+    if not available_metrics:
+        return pd.DataFrame()
+
+    agg_spec: dict[str, list[str]] = {metric: ["mean", "std"] for metric in available_metrics}
+    agg = df.groupby(group_keys, dropna=False).agg(agg_spec)
+    agg.columns = [f"{metric}_{stat}" for metric, stat in agg.columns]
+    agg = agg.reset_index()
+
+    seed_counts = df.groupby(group_keys, dropna=False).agg(
+        n_seeds=("seed", "nunique"),
+        seeds=("seed", lambda s: sorted({int(v) for v in s if int(v) >= 0})),
+    )
+    seed_counts = seed_counts.reset_index()
+    merged = agg.merge(seed_counts, on=group_keys, how="left")
+    return merged
+
+
 def _build_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["dataset_pair"])
@@ -348,6 +397,13 @@ def export_paper_results(artifacts_root: str | Path, output_dir: str | Path) -> 
 
     pivot_df = _build_pivot_table(summary_df)
     pivot_df.to_csv(pivot_csv, index=False, encoding="utf-8")
+
+    seed_agg_csv = output_dir / "paper_results_seed_aggregated.csv"
+    seed_agg_df = _build_seed_aggregated_table(summary_df)
+    if seed_agg_df.empty:
+        pd.DataFrame().to_csv(seed_agg_csv, index=False, encoding="utf-8")
+    else:
+        seed_agg_df.to_csv(seed_agg_csv, index=False, encoding="utf-8")
 
     shap_ranking_df = pd.DataFrame(_collect_shap_ranking_rows(artifacts_root))
     shap_topk_df = pd.DataFrame(_collect_shap_topk_rows(artifacts_root))
@@ -396,6 +452,7 @@ def export_paper_results(artifacts_root: str | Path, output_dir: str | Path) -> 
         "best_csv": str(best_csv),
         "efficiency_csv": str(efficiency_csv),
         "pivot_csv": str(pivot_csv),
+        "seed_aggregated_csv": str(seed_agg_csv),
         "shap_ranking_csv": str(shap_ranking_csv),
         "shap_topk_csv": str(shap_topk_csv),
         "figures_dir": str(figures_dir),

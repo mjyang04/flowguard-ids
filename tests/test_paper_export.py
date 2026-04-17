@@ -30,8 +30,11 @@ def _create_run(
     roc_auc: float,
     benign_false_alarm_rate: float,
     mean_latency_ms: float,
+    seed: int | None = None,
+    recall_at_far_1pct: float | None = None,
 ) -> Path:
-    run_dir = root / f"{train_dataset}_to_{test_dataset}" / model / "runs" / run_name
+    base = root / f"seed{seed}" if seed is not None else root
+    run_dir = base / f"{train_dataset}_to_{test_dataset}" / model / "runs" / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     _write_json(
         run_dir / "report.json",
@@ -65,7 +68,7 @@ def _create_run(
                 "roc_auc": roc_auc,
                 "best_f1": 0.94,
                 "best_f1_threshold": 0.52,
-                "recall_at_far_1pct": 0.86,
+                "recall_at_far_1pct": recall_at_far_1pct if recall_at_far_1pct is not None else 0.86,
                 "threshold_at_far_1pct": 0.73,
                 "recall_at_far_5pct": 0.91,
                 "threshold_at_far_5pct": 0.61,
@@ -79,20 +82,20 @@ def _create_run(
             },
         },
     )
-    _write_json(
-        run_dir / "run_manifest.json",
-        {
-            "run_name": run_name,
-            "run_dir": str(run_dir),
-            "started_at": "2026-04-07T10:00:00",
-            "finished_at": "2026-04-07T10:10:00",
-            "train_dataset": train_dataset,
-            "test_dataset": test_dataset,
-            "model": model,
-            "imbalance_strategy": "class_weights",
-            "report_path": str(run_dir / "report.json"),
-        },
-    )
+    manifest_payload = {
+        "run_name": run_name,
+        "run_dir": str(run_dir),
+        "started_at": "2026-04-07T10:00:00",
+        "finished_at": "2026-04-07T10:10:00",
+        "train_dataset": train_dataset,
+        "test_dataset": test_dataset,
+        "model": model,
+        "imbalance_strategy": "class_weights",
+        "report_path": str(run_dir / "report.json"),
+    }
+    if seed is not None:
+        manifest_payload["seed"] = int(seed)
+    _write_json(run_dir / "run_manifest.json", manifest_payload)
     (run_dir / "resolved_config.yaml").write_text(
         yaml.safe_dump({"training": {"selection_metric": "avg_attack_recall"}}, sort_keys=False),
         encoding="utf-8",
@@ -196,3 +199,47 @@ def test_export_paper_results_generates_csv_and_figures(tmp_path: Path) -> None:
     assert len(best_rows) == 1
     assert best_rows[0]["model"] == "cnn_bilstm_se"
     assert best_rows[0]["rank_within_dataset_pair"] == "1"
+
+
+def test_export_paper_results_aggregates_multi_seed(tmp_path: Path) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    recalls = {42: 0.82, 43: 0.85, 44: 0.88}
+    for seed, recall in recalls.items():
+        _create_run(
+            artifacts_root,
+            train_dataset="cicids2017",
+            test_dataset="unsw_nb15",
+            model="cnn_bilstm_se",
+            run_name=f"20260407_100000_cnn_bilstm_se_class_weights_seed{seed}",
+            avg_attack_recall=recall,
+            pr_auc=0.95,
+            roc_auc=0.97,
+            benign_false_alarm_rate=0.03,
+            mean_latency_ms=1.8,
+            seed=seed,
+            recall_at_far_1pct=recall,
+        )
+
+    output_dir = tmp_path / "paper_exports"
+    result = export_paper_results(artifacts_root=artifacts_root, output_dir=output_dir)
+
+    seed_agg_csv = Path(result["seed_aggregated_csv"])
+    assert seed_agg_csv.exists()
+
+    with seed_agg_csv.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["model"] == "cnn_bilstm_se"
+    assert int(row["n_seeds"]) == 3
+    mean_recall = float(row["recall_at_far_1pct_mean"])
+    std_recall = float(row["recall_at_far_1pct_std"])
+    assert mean_recall == pytest.approx(sum(recalls.values()) / 3, abs=1e-6)
+    assert std_recall > 0
+
+    summary_csv = Path(result["summary_csv"])
+    with summary_csv.open(encoding="utf-8", newline="") as f:
+        summary_rows = list(csv.DictReader(f))
+    seeds_seen = sorted({int(r["seed"]) for r in summary_rows})
+    assert seeds_seen == [42, 43, 44]

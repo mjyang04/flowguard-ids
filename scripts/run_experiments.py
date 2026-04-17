@@ -14,10 +14,13 @@ from nids.utils.process import run_command
 
 DEFAULT_EXPERIMENTS = [
     ("same_cicids", "cicids2017", "cicids2017"),
+    ("same_unsw", "unsw_nb15", "unsw_nb15"),
     ("cross_cic_to_unsw", "cicids2017", "unsw_nb15"),
     ("cross_unsw_to_cic", "unsw_nb15", "cicids2017"),
 ]
+LAPTOP_3060_EXPERIMENTS = ["same_cicids", "same_unsw", "cross_cic_to_unsw"]
 LAPTOP_3060_MODELS = ["cnn_bilstm_se", "random_forest", "xgboost"]
+DEFAULT_SEEDS = [42, 43, 44]
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,64 +29,76 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         default="artifacts/experiments",
-        help="Directory used for experiment summary files such as experiment_status.json",
-    )
-    parser.add_argument("--max-rows", type=int, default=None)
-    parser.add_argument(
-        "--models",
-        default=None,
-        help="Model selection: single name, comma-separated list, or 'all' (e.g. --models cnn_bilstm_se,xgboost)",
-    )
-    parser.add_argument("--skip-existing", action="store_true")
-    parser.add_argument("--auto-preprocess", action="store_true")
-    parser.add_argument(
-        "--cross-only",
-        action="store_true",
-        help="Run only cross-dataset experiment (cicids2017 -> unsw_nb15), skip same-dataset reference",
+        help="Directory for the experiment_status.json summary",
     )
     parser.add_argument(
         "--profile",
         default="default",
         choices=["default", "laptop_3060"],
-        help="Optional preset experiment profile",
+        help="Experiment profile: 'default' runs the full matrix; 'laptop_3060' is the RTX 3060 preset",
     )
     parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Force full retraining of all selected models (disable skip logic)",
+        "--models",
+        default=None,
+        help="Model selection: single name, comma-separated list, or 'all'",
     )
     parser.add_argument(
         "--one-click",
         action="store_true",
-        help="One-click experiment: auto preprocessing + all models + train only missing results",
+        help="One-click: all models, auto-preprocess + auto feature-selection, skip finished runs",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force retraining (overrides the default skip-existing behavior)",
+    )
+    parser.add_argument(
+        "--seeds",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Multi-seed: each seed lands in artifacts/seed<S>/<train>_to_<test>/ for downstream aggregation",
+    )
+    parser.add_argument(
+        "--no-cross-dataset-enhancements",
+        dest="cross_dataset_enhancements",
+        action="store_false",
+        default=True,
+        help="Disable the AUC+Platt+LS bundle that is auto-enabled on cross-dataset directions",
+    )
+    parser.add_argument("--max-rows", type=int, default=None, help="Advanced: cap preprocessed rows")
     return parser.parse_args()
 
 
 def _apply_profile_defaults(args: argparse.Namespace) -> argparse.Namespace:
     resolved = argparse.Namespace(**vars(args))
-    if resolved.profile == "laptop_3060":
-        resolved.cross_only = True
-        if not resolved.models:
-            resolved.models = ",".join(LAPTOP_3060_MODELS)
+    if resolved.profile == "laptop_3060" and not resolved.models:
+        resolved.models = ",".join(LAPTOP_3060_MODELS)
     return resolved
 
 
 def _resolve_experiments(args: argparse.Namespace) -> list[tuple[str, str, str]]:
-    if args.cross_only:
-        return [e for e in DEFAULT_EXPERIMENTS if e[1] != e[2]]
+    if args.profile == "laptop_3060":
+        allowed = set(LAPTOP_3060_EXPERIMENTS)
+        return [e for e in DEFAULT_EXPERIMENTS if e[0] in allowed]
     return DEFAULT_EXPERIMENTS
+
+
+def _resolve_seeds(args: argparse.Namespace) -> list[int | None]:
+    if args.seeds is None:
+        return [None]
+    if not args.seeds:
+        raise ValueError("--seeds requires at least one integer")
+    return [int(s) for s in args.seeds]
 
 
 def _build_train_command(
     args: argparse.Namespace,
     train_ds: str,
     test_ds: str,
+    seed: int | None = None,
+    output_dir: Path | None = None,
 ) -> list[str]:
-    one_click = args.one_click
-    skip_existing = (args.skip_existing or one_click) and (not args.force)
-    auto_preprocess = args.auto_preprocess or one_click
-
     train_cmd = [
         sys.executable,
         "scripts/train.py",
@@ -94,22 +109,26 @@ def _build_train_command(
         "--test-dataset",
         test_ds,
     ]
-
-    if auto_preprocess:
-        train_cmd.append("--auto-preprocess")
-    if one_click:
-        train_cmd.append("--auto-feature-selection")
+    if args.one_click:
+        train_cmd += ["--one-click", "--resume"]
     if args.max_rows is not None:
         train_cmd += ["--max-rows", str(args.max_rows)]
-    models = args.models or ("all" if one_click else None)
+    models = args.models or ("all" if args.one_click else None)
     if models:
         train_cmd += ["--models", models]
-    if skip_existing:
-        train_cmd.append("--skip-existing")
-    if one_click and not args.force:
-        train_cmd.append("--resume")
     if args.force:
         train_cmd.append("--force")
+    if seed is not None:
+        train_cmd += ["--seed", str(seed)]
+    if output_dir is not None:
+        train_cmd += ["--output-dir", str(output_dir)]
+
+    # Auto-enable the cross-dataset enhancement bundle on transfer directions
+    # unless the caller explicitly opted out with --no-cross-dataset-enhancements.
+    if train_ds != test_ds and args.cross_dataset_enhancements:
+        train_cmd.append("--cross-dataset-enhancements")
+    elif train_ds != test_ds and not args.cross_dataset_enhancements:
+        train_cmd.append("--no-cross-dataset-enhancements")
     return train_cmd
 
 
@@ -119,55 +138,51 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    base = [sys.executable]
-    results = {}
+    results: dict = {}
     experiments = _resolve_experiments(args)
+    seeds = _resolve_seeds(args)
+    multi_seed = len(seeds) > 1 or (len(seeds) == 1 and seeds[0] is not None)
 
-    for exp_name, train_ds, test_ds in experiments:
-        one_click = args.one_click
-        skip_existing = (args.skip_existing or one_click) and (not args.force)
-        auto_preprocess = args.auto_preprocess or one_click
+    for seed in seeds:
+        for exp_name, train_ds, test_ds in experiments:
+            run_key = f"{exp_name}__seed{seed}" if seed is not None else exp_name
+            exp_output_dir = output_dir / exp_name
+            exp_output_dir.mkdir(parents=True, exist_ok=True)
 
-        exp_output_dir = output_dir / exp_name
-        exp_output_dir.mkdir(parents=True, exist_ok=True)
+            # Multi-seed runs land in isolated artifact roots so skip-existing
+            # and Top-K lookups do not collide across seeds.
+            train_output_dir: Path | None = None
+            if multi_seed and seed is not None:
+                train_output_dir = (
+                    Path("artifacts") / f"seed{seed}" / f"{train_ds}_to_{test_ds}"
+                )
 
-        preprocess_ok = True
-        if not auto_preprocess:
-            preprocess_cmd = base + [
-                "scripts/preprocess_cross_dataset.py",
-                "--config",
-                args.config,
-                "--train-dataset",
-                train_ds,
-                "--test-dataset",
-                test_ds,
-            ]
-            if args.max_rows is not None:
-                preprocess_cmd += ["--max-rows", str(args.max_rows)]
-            try:
-                run_command(preprocess_cmd, logger)
-            except RuntimeError as exc:
-                logger.error("Preprocess failed for %s: %s", exp_name, exc)
-                preprocess_ok = False
+            train_cmd = _build_train_command(
+                args,
+                train_ds=train_ds,
+                test_ds=test_ds,
+                seed=seed,
+                output_dir=train_output_dir,
+            )
 
-        train_cmd = _build_train_command(args, train_ds=train_ds, test_ds=test_ds)
-
-        train_ok = False
-        if preprocess_ok:
+            train_ok = False
             try:
                 run_command(train_cmd, logger)
                 train_ok = True
             except RuntimeError as exc:
-                logger.error("Train failed for %s: %s", exp_name, exc)
+                logger.error("Train failed for %s: %s", run_key, exc)
 
-        results[exp_name] = {
-            "preprocess_ok": preprocess_ok,
-            "train_ok": train_ok,
-            "skip_existing": skip_existing,
-            "auto_preprocess": auto_preprocess,
-            "profile": args.profile,
-            "models": args.models or ("all" if one_click else None),
-        }
+            results[run_key] = {
+                "experiment": exp_name,
+                "seed": seed,
+                "train_dataset": train_ds,
+                "test_dataset": test_ds,
+                "output_dir": str(train_output_dir) if train_output_dir else None,
+                "train_ok": train_ok,
+                "profile": args.profile,
+                "models": args.models or ("all" if args.one_click else None),
+                "cross_dataset_enhancements": bool(args.cross_dataset_enhancements),
+            }
 
     save_json(results, output_dir / "experiment_status.json")
     logger.info("Experiment run finished. Summary: %s", output_dir / "experiment_status.json")

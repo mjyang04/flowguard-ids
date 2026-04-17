@@ -222,7 +222,7 @@ Pipeline:
 Simplified command (recommended):
 
 ```bash
-python scripts/train_lightweight.py --config configs/default.yaml --model random_forest --auto-preprocess --auto-feature-selection
+python scripts/train_lightweight.py --config configs/default.yaml --model random_forest
 ```
 
 This command will:
@@ -233,28 +233,28 @@ This command will:
 
 ## Common Commands
 
-Train a specific model:
+Train a specific model on the cross-dataset direction (auto-enable AUC+Platt+LS via `--cross-dataset-enhancements`; preprocessing runs automatically when data is missing):
 
 ```bash
-python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --model cnn_bilstm_se --imbalance-strategy class_weights --run-tag thesis_main --auto-preprocess
+python scripts/train.py --config configs/default.yaml --train-dataset cicids2017 --test-dataset unsw_nb15 --models cnn_bilstm_se --run-tag thesis_main --cross-dataset-enhancements
 ```
 
-Train all models manually:
+Train all models in one go:
 
 ```bash
-python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --models all --auto-preprocess
+python scripts/train.py --config configs/default.yaml --train-dataset cicids2017 --test-dataset unsw_nb15 --models all --cross-dataset-enhancements
 ```
 
-Resume interrupted deep-model training (continue from latest checkpoint of that model):
+Resume interrupted deep-model training (continue from the latest checkpoint of that model):
 
 ```bash
-python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --model cnn_bilstm_se --resume
+python scripts/train.py --config configs/default.yaml --train-dataset cicids2017 --test-dataset unsw_nb15 --models cnn_bilstm_se --resume
 ```
 
-Train with SMOTE strategy (deep/classical supported in training stage):
+Train with an explicit imbalance strategy (defaults to `auto` → SMOTE):
 
 ```bash
-python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --model cnn_bilstm --imbalance-strategy smote --run-tag smote_try --auto-preprocess
+python scripts/train.py --config configs/default.yaml --train-dataset cicids2017 --test-dataset unsw_nb15 --models cnn_bilstm --imbalance-strategy smote --run-tag smote_try --cross-dataset-enhancements
 ```
 
 Preprocess only:
@@ -282,10 +282,10 @@ Top-K feature selection:
 python scripts/feature_selection.py --selected-idx artifacts/shap/shared/cicids2017_to_cicids2017/cnn_bilstm_se/top30_idx.npy --feature-names artifacts/shap/shared/cicids2017_to_cicids2017/cnn_bilstm_se/feature_names.npy --data-file data/processed/cross_cicids2017_to_unsw_nb15.npz --output-dir artifacts/feature_selection/cicids2017_to_unsw_nb15/cnn_bilstm_se_topk_top30
 ```
 
-Train `cnn_bilstm_se_topk` (requires reduced features; add `--auto-feature-selection` to auto build):
+Train `cnn_bilstm_se_topk` (reduced features are auto-generated from SHAP outputs when missing):
 
 ```bash
-python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --model cnn_bilstm_se_topk --auto-preprocess --auto-feature-selection
+python scripts/train.py --config configs/default.yaml --train-dataset cicids2017 --test-dataset unsw_nb15 --models cnn_bilstm_se_topk --cross-dataset-enhancements
 ```
 
 Shared SHAP reference outputs are generated only once and reused later. The default reference is:
