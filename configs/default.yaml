@@ -9,6 +9,9 @@ data:
   train_ratio: 0.8
   val_ratio: 0.1
   scaler_type: minmax
+  # label_mode: "binary" (default) or "multiclass". When running multiclass
+  # pass `--label-mode multiclass` to scripts/train.py or scripts/run_experiments.py;
+  # num_classes is auto-resolved per training dataset (CIC=15, UNSW=10).
   label_mode: binary
   random_state: 42
   stratify: true
@@ -27,6 +30,11 @@ model:
   use_se: true
   se_reduction: 16
   use_attention: false
+  # FT-Transformer hyperparameters (only consumed when model.name == ft_transformer)
+  d_token: 64
+  n_blocks: 3
+  attention_heads: 4
+  ffn_factor: 2.0
 
 training:
   num_epochs: 30
