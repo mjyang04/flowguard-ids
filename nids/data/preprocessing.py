@@ -60,6 +60,19 @@ UNSW_TO_BINARY = {
     "worms": 1,
 }
 
+LABEL_MAPPING_UNSW_MULTI = {
+    "normal": 0,
+    "generic": 1,
+    "exploits": 2,
+    "fuzzers": 3,
+    "dos": 4,
+    "reconnaissance": 5,
+    "analysis": 6,
+    "backdoor": 7,
+    "shellcode": 8,
+    "worms": 9,
+}
+
 
 def normalize_column_name(name: str) -> str:
     s = str(name).strip().lower()
@@ -212,21 +225,24 @@ def _encode_cicids_labels(series: pd.Series, label_mode: str) -> np.ndarray:
 
 
 def _encode_unsw_labels(df: pd.DataFrame, label_mode: str) -> np.ndarray:
-    if label_mode == "binary":
-        if "attack_cat" in df.columns:
-            normalized = df["attack_cat"].astype(str).map(normalize_label_text)
-            y = normalized.map(UNSW_TO_BINARY)
-            if y.isna().any() and "label" in df.columns:
-                y = y.fillna(df["label"])
-            return y.fillna(1).astype(int).values
-        if "label" in df.columns:
+    if "attack_cat" not in df.columns:
+        if label_mode == "binary" and "label" in df.columns:
             return pd.to_numeric(df["label"], errors="coerce").fillna(1).astype(int).values
-    if "attack_cat" in df.columns:
-        le = LabelEncoder()
-        return le.fit_transform(df["attack_cat"].astype(str).values)
-    if "label" in df.columns:
-        return pd.to_numeric(df["label"], errors="coerce").fillna(0).astype(int).values
-    raise ValueError("UNSW labels not found")
+        raise ValueError("UNSW labels not found (need attack_cat or label)")
+
+    normalized = df["attack_cat"].astype(str).map(normalize_label_text)
+    if label_mode == "binary":
+        y = normalized.map(UNSW_TO_BINARY)
+        if y.isna().any() and "label" in df.columns:
+            y = y.fillna(df["label"])
+        return y.fillna(1).astype(int).values
+
+    # multiclass — use stable dataset-level mapping
+    y = normalized.map(LABEL_MAPPING_UNSW_MULTI)
+    if y.isna().any():
+        unknown = normalized[y.isna()].unique().tolist()
+        raise ValueError(f"Unknown UNSW attack_cat values: {unknown}")
+    return y.astype(int).values
 
 
 def encode_labels(
