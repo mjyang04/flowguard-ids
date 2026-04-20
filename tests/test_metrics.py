@@ -102,3 +102,35 @@ def test_best_f1_tiebreak_prefers_higher_recall():
     assert abs(metrics["best_f1"] - 0.75) < 1e-9
     # The threshold that achieves recall=1.0 with F1=0.75
     assert metrics["best_f1_threshold"] == 0.4
+
+
+def test_multiclass_metrics_expose_weighted_and_per_class():
+    y_true = np.array([0, 0, 1, 2, 2, 3, 3, 3])
+    y_pred = np.array([0, 1, 1, 2, 2, 3, 0, 3])
+    m = compute_nids_metrics(y_true, y_pred, benign_class=0)
+    assert "weighted_f1" in m
+    assert "per_class_f1" in m
+    assert "per_class_recall" in m
+    assert "per_class_precision" in m
+    assert set(m["per_class_f1"].keys()) == {"0", "1", "2", "3"}
+    assert 0.0 <= m["weighted_f1"] <= 1.0
+    for cls_key, value in m["per_class_recall"].items():
+        assert 0.0 <= value <= 1.0, f"per_class_recall[{cls_key}]={value}"
+
+
+def test_multiclass_metrics_skip_binary_score_keys_when_y_score_is_none():
+    y_true = np.array([0, 1, 2, 1, 2, 0])
+    y_pred = np.array([0, 1, 2, 1, 2, 1])
+    m = compute_nids_metrics(y_true, y_pred, benign_class=0)
+    # binary-only keys must not appear when y_score is None / multiclass
+    assert "pr_auc" not in m
+    assert "recall_at_far_1pct" not in m
+
+
+def test_binary_metrics_also_carry_per_class_entries():
+    """New per-class keys should be additive and present even for binary."""
+    y_true = np.array([0, 0, 1, 1])
+    y_pred = np.array([0, 1, 1, 1])
+    m = compute_nids_metrics(y_true, y_pred, benign_class=0)
+    assert "per_class_f1" in m and set(m["per_class_f1"].keys()) == {"0", "1"}
+    assert "weighted_f1" in m

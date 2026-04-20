@@ -165,5 +165,24 @@ def compute_nids_metrics(
         "attack_miss_rate": float(1.0 - avg_attack_recall),
         "confusion_matrix": cm.tolist(),
     }
+
+    # Weighted-F1 + per-class breakdown (works for binary and multiclass)
+    weighted = report.get("weighted avg", {})
+    metrics["weighted_f1"] = float(weighted.get("f1-score", 0.0))
+
+    per_class_f1: dict[str, float] = {}
+    per_class_recall: dict[str, float] = {}
+    per_class_precision: dict[str, float] = {}
+    for cls in unique_classes:
+        key = str(cls)
+        entry = report.get(key)
+        if isinstance(entry, dict):
+            per_class_f1[key] = float(entry.get("f1-score", 0.0))
+            per_class_recall[key] = float(entry.get("recall", 0.0))
+            per_class_precision[key] = float(entry.get("precision", 0.0))
+    metrics["per_class_f1"] = per_class_f1
+    metrics["per_class_recall"] = per_class_recall
+    metrics["per_class_precision"] = per_class_precision
+
     metrics.update(_compute_binary_score_metrics(y_true, y_score, benign_class))
     return metrics
