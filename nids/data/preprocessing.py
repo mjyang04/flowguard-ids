@@ -74,6 +74,20 @@ LABEL_MAPPING_UNSW_MULTI = {
 }
 
 
+def get_num_classes(dataset: str, label_mode: str) -> int:
+    """Return the number of target classes for the (dataset, label_mode) pair."""
+    if label_mode == "binary":
+        return 2
+    if label_mode != "multiclass":
+        raise ValueError(f"Unknown label_mode={label_mode!r}")
+    key = dataset.lower()
+    if key == "cicids2017":
+        return len(set(LABEL_MAPPING_MULTI.values()))
+    if key == "unsw_nb15":
+        return len(set(LABEL_MAPPING_UNSW_MULTI.values()))
+    raise ValueError(f"Unknown dataset={dataset!r}")
+
+
 def normalize_column_name(name: str) -> str:
     s = str(name).strip().lower()
     s = s.replace("∞", "inf")

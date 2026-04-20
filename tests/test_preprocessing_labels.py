@@ -39,3 +39,31 @@ def test_unsw_multiclass_unknown_label_raises():
 def test_cicids_multiclass_mapping_covers_fifteen_classes():
     assert len(set(LABEL_MAPPING_MULTI.values())) == 15
     assert LABEL_MAPPING_MULTI["benign"] == 0
+
+
+def test_get_num_classes_binary_is_two():
+    from nids.data.preprocessing import get_num_classes
+
+    assert get_num_classes("cicids2017", "binary") == 2
+    assert get_num_classes("unsw_nb15", "binary") == 2
+
+
+def test_get_num_classes_multiclass_per_dataset():
+    from nids.data.preprocessing import get_num_classes
+
+    assert get_num_classes("cicids2017", "multiclass") == 15
+    assert get_num_classes("unsw_nb15", "multiclass") == 10
+
+
+def test_get_num_classes_unknown_dataset_raises():
+    from nids.data.preprocessing import get_num_classes
+
+    with pytest.raises(ValueError):
+        get_num_classes("kdd99", "multiclass")
+
+
+def test_get_num_classes_unknown_mode_raises():
+    from nids.data.preprocessing import get_num_classes
+
+    with pytest.raises(ValueError):
+        get_num_classes("cicids2017", "triple")
