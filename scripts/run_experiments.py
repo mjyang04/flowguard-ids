@@ -18,6 +18,10 @@ DEFAULT_EXPERIMENTS = [
     ("cross_cic_to_unsw", "cicids2017", "unsw_nb15"),
     ("cross_unsw_to_cic", "unsw_nb15", "cicids2017"),
 ]
+MULTICLASS_EXPERIMENTS = [
+    ("same_cicids", "cicids2017", "cicids2017"),
+    ("same_unsw", "unsw_nb15", "unsw_nb15"),
+]
 LAPTOP_3060_EXPERIMENTS = ["same_cicids", "same_unsw", "cross_cic_to_unsw"]
 LAPTOP_3060_MODELS = ["cnn_bilstm_se", "random_forest", "xgboost"]
 DEFAULT_SEEDS = [42, 43, 44]
@@ -66,6 +70,15 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Disable the AUC+Platt+LS bundle that is auto-enabled on cross-dataset directions",
     )
+    parser.add_argument(
+        "--label-mode",
+        choices=["binary", "multiclass"],
+        default="binary",
+        help=(
+            "Target task. 'multiclass' restricts the matrix to same-dataset "
+            "CIC + UNSW rows and disables cross-dataset enhancements."
+        ),
+    )
     parser.add_argument("--max-rows", type=int, default=None, help="Advanced: cap preprocessed rows")
     return parser.parse_args()
 
@@ -78,6 +91,10 @@ def _apply_profile_defaults(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def _resolve_experiments(args: argparse.Namespace) -> list[tuple[str, str, str]]:
+    label_mode = getattr(args, "label_mode", "binary")
+    if label_mode == "multiclass":
+        # Multiclass is same-dataset only by design (no cross-dataset mapping).
+        return list(MULTICLASS_EXPERIMENTS)
     if args.profile == "laptop_3060":
         allowed = set(LAPTOP_3060_EXPERIMENTS)
         return [e for e in DEFAULT_EXPERIMENTS if e[0] in allowed]
@@ -122,6 +139,13 @@ def _build_train_command(
         train_cmd += ["--seed", str(seed)]
     if output_dir is not None:
         train_cmd += ["--output-dir", str(output_dir)]
+
+    label_mode = getattr(args, "label_mode", "binary")
+    # Multiclass runs are binary-only-incompatible with Platt/AUC-loss;
+    # emit --label-mode explicitly and skip the cross-dataset bundle.
+    if label_mode == "multiclass":
+        train_cmd += ["--label-mode", "multiclass"]
+        return train_cmd
 
     # Auto-enable the cross-dataset enhancement bundle on transfer directions
     # unless the caller explicitly opted out with --no-cross-dataset-enhancements.
@@ -182,6 +206,7 @@ def main() -> None:
                 "profile": args.profile,
                 "models": args.models or ("all" if args.one_click else None),
                 "cross_dataset_enhancements": bool(args.cross_dataset_enhancements),
+                "label_mode": getattr(args, "label_mode", "binary"),
             }
 
     save_json(results, output_dir / "experiment_status.json")

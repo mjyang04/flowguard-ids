@@ -79,6 +79,7 @@ def _minimal_args(**overrides) -> Namespace:
         seeds=None,
         cross_dataset_enhancements=True,
         output_dir="artifacts/experiments",
+        label_mode="binary",
     )
     defaults.update(overrides)
     return Namespace(**defaults)
@@ -166,3 +167,34 @@ def test_one_click_passes_resume_and_models() -> None:
     assert "--resume" in cmd
     assert "--models" in cmd
     assert cmd[cmd.index("--models") + 1] == "all"
+
+
+def test_multiclass_label_mode_restricts_to_same_dataset_rows() -> None:
+    args = _minimal_args(profile="laptop_3060", one_click=True, label_mode="multiclass")
+    resolved = run_experiments_script._apply_profile_defaults(args)
+    experiments = run_experiments_script._resolve_experiments(resolved)
+    names = {e[0] for e in experiments}
+    # Cross directions are dropped because the thesis no longer reports cross.
+    assert "same_cicids" in names
+    assert "same_unsw" in names
+    assert "cross_cic_to_unsw" not in names
+
+
+def test_build_train_command_injects_label_mode() -> None:
+    args = _minimal_args(label_mode="multiclass")
+    cmd = run_experiments_script._build_train_command(
+        args=args, train_ds="cicids2017", test_ds="cicids2017"
+    )
+    assert "--label-mode" in cmd
+    assert cmd[cmd.index("--label-mode") + 1] == "multiclass"
+    # multiclass must not pair with cross-dataset enhancements (binary-only).
+    assert "--cross-dataset-enhancements" not in cmd
+
+
+def test_build_train_command_binary_keeps_no_label_mode_flag() -> None:
+    args = _minimal_args()
+    cmd = run_experiments_script._build_train_command(
+        args=args, train_ds="cicids2017", test_ds="cicids2017"
+    )
+    # Binary is the default; no need to emit --label-mode.
+    assert "--label-mode" not in cmd
