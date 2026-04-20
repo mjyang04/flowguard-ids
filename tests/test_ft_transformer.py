@@ -53,6 +53,18 @@ def test_ft_transformer_param_count_reasonable():
     assert 150_000 < params < 2_000_000, f"unexpected param count {params}"
 
 
+def test_ft_transformer_built_through_registry():
+    from nids.config import ModelConfig
+    from nids.models.registry import create_model
+
+    model_cfg = ModelConfig(
+        name="ft_transformer", input_dim=55, num_classes=15, dropout=0.1
+    )
+    model = create_model(model_cfg)
+    out = model(torch.randn(2, 55))
+    assert out.shape == (2, 15)
+
+
 def test_ft_transformer_backward_pass():
     """A single backward pass should populate gradients on all parameters."""
     model = FTTransformer(

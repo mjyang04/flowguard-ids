@@ -179,6 +179,11 @@ class ModelConfig:
     use_se: bool = True
     se_reduction: int = 16
     use_attention: bool = False
+    # FT-Transformer specific (ignored by other models)
+    d_token: int = 64
+    n_blocks: int = 3
+    attention_heads: int = 4
+    ffn_factor: float = 2.0
 
 
 @dataclass
