@@ -38,7 +38,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--data-dir", default=None)
     parser.add_argument("--output-dir", default=None)
-    parser.add_argument("--label-mode", choices=["binary", "multi"], default=None)
+    parser.add_argument(
+        "--label-mode", choices=["binary", "multi", "multiclass"], default=None
+    )
     parser.add_argument("--max-rows", type=int, default=None)
     parser.add_argument("--data-percentage", type=float, default=None, help="Percent of dataset to use (0, 100]")
     return parser.parse_args()

@@ -19,6 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from nids.config import ExperimentConfig, load_config, save_config
 from nids.data.dataset import create_dataloaders
 from nids.data.preprocessing import apply_oversampling, apply_smote, compute_class_weights
+from nids.evaluation.calibration import PlattCalibrator, collect_logits
 from nids.evaluation.metrics import compute_nids_metrics
 from nids.models.classical import predict_binary_scores, train_random_forest, train_xgboost
 from nids.models.registry import create_model
@@ -153,6 +154,23 @@ def parse_args() -> argparse.Namespace:
         help="Advanced: explicit reduced npz path for cnn_bilstm_se_topk",
     )
     parser.add_argument("--max-rows", type=int, default=None, help="Advanced: cap preprocessed rows (debugging)")
+    parser.add_argument(
+        "--label-mode",
+        choices=["binary", "multiclass"],
+        default=None,
+        help=(
+            "Override cfg.data.label_mode. When 'multiclass', num_classes is auto-set "
+            "per train-dataset and selection_metric defaults to macro_f1."
+        ),
+    )
+    parser.add_argument(
+        "--selection-metric",
+        default=None,
+        help=(
+            "Override cfg.training.selection_metric (e.g. macro_f1 or weighted_f1 "
+            "for multiclass runs)."
+        ),
+    )
 
     args = parser.parse_args()
     # The preprocessing / feature-selection / skip-existing flags are no longer
@@ -175,9 +193,11 @@ def _resolve_data_file(cfg: ExperimentConfig, args: argparse.Namespace) -> Path:
     train_ds = args.train_dataset or cfg.data.train_dataset
     test_ds = args.test_dataset or cfg.data.test_dataset
     processed_dir = Path(cfg.data.processed_dir)
+    # Multiclass uses a separate NPZ to avoid colliding with binary artifacts.
+    suffix = "_multiclass" if cfg.data.label_mode in ("multiclass", "multi") else ""
     if train_ds != test_ds:
-        return processed_dir / f"cross_{train_ds}_to_{test_ds}.npz"
-    return processed_dir / train_ds / "data.npz"
+        return processed_dir / f"cross_{train_ds}_to_{test_ds}{suffix}.npz"
+    return processed_dir / train_ds / f"data{suffix}.npz"
 
 
 def _load_npz(path: Path) -> dict:
@@ -720,6 +740,62 @@ def run_classical_training(
     return report
 
 
+def _apply_platt_scaling_for_deep_model(
+    model: torch.nn.Module,
+    val_loader,
+    test_loader,
+    device: torch.device,
+    output_dir: Path,
+    raw_test_metrics: dict,
+    logger,
+) -> tuple[dict, dict, np.ndarray, np.ndarray]:
+    """Fit Platt scaling on val logits and apply to test logits.
+
+    Rationale: in cross-dataset evaluation the raw sigmoid probabilities are
+    often miscalibrated (Guo et al. 2017). Platt scaling (Platt 1999) fits a
+    logistic correction on held-out source-validation logits, which is
+    monotone and therefore preserves ROC/PR-AUC while reducing ECE.
+
+    Returns:
+        Tuple of (calibrated_metrics, calibration_info, calibrated_probs,
+        calibrated_preds). The info dict is JSON-safe; probs/preds are aligned
+        with the test loader order so they can feed downstream artifacts.
+    """
+    val_logits, val_labels = collect_logits(model, val_loader, device)
+    test_logits, test_labels = collect_logits(model, test_loader, device)
+
+    calibrator = PlattCalibrator()
+    fit_result = calibrator.fit(val_logits, val_labels)
+
+    calibrated_probs = calibrator.transform(test_logits)
+    calibrated_preds = (calibrated_probs >= 0.5).astype(np.int64)
+    calibrated_metrics = compute_nids_metrics(
+        test_labels, calibrated_preds, y_score=calibrated_probs
+    )
+
+    calibrator.save(output_dir / "platt_calibration.npz")
+    calibration_info = {
+        "A": float(calibrator.A),
+        "B": float(calibrator.B),
+        "val_ece_before": float(fit_result.val_ece_before),
+        "val_ece_after": float(fit_result.val_ece_after),
+        "test_ece_before": float(raw_test_metrics.get("ece", float("nan"))),
+        "test_ece_after": float(calibrated_metrics.get("ece", float("nan"))),
+    }
+    save_json(calibration_info, output_dir / "platt_calibration.json")
+
+    logger.info(
+        "Platt calibration | A=%.4f B=%.4f val_ECE %.4f->%.4f test_ECE %.4f->%.4f",
+        calibrator.A,
+        calibrator.B,
+        calibration_info["val_ece_before"],
+        calibration_info["val_ece_after"],
+        calibration_info["test_ece_before"],
+        calibration_info["test_ece_after"],
+    )
+    return calibrated_metrics, calibration_info, calibrated_probs, calibrated_preds
+
+
 def run_training(
     cfg: ExperimentConfig,
     data_file: Path,
@@ -817,6 +893,34 @@ def run_training(
     )
     latency = trainer.measure_latency(model, test_loader)
 
+    raw_test_metrics = dict(test_result.metrics)
+    final_y_pred = test_result.predictions
+    calibration_info: dict | None = None
+    platt_enabled = bool(
+        getattr(cfg.training, "use_platt_calibration", False)
+        and cfg.model.num_classes == 2
+    )
+    if platt_enabled:
+        (
+            calibrated_metrics,
+            calibration_info,
+            _calibrated_probs,
+            calibrated_preds,
+        ) = _apply_platt_scaling_for_deep_model(
+            model=model,
+            val_loader=val_loader,
+            test_loader=test_loader,
+            device=device,
+            output_dir=output_dir,
+            raw_test_metrics=raw_test_metrics,
+            logger=logger,
+        )
+        # Post-Platt metrics become the primary view so downstream tables
+        # and H3 accept/reject see the calibrated numbers. The raw metrics
+        # are preserved under `test_metrics_uncalibrated` for H3 ablation.
+        test_result.metrics = calibrated_metrics
+        final_y_pred = calibrated_preds
+
     summary.test_metrics = test_result.metrics
     report = {
         "model": report_model_name or cfg.model.name,
@@ -829,6 +933,8 @@ def run_training(
         "feature_names": feature_names.tolist(),
         "training_summary": asdict(summary),
         "test_metrics": test_result.metrics,
+        "test_metrics_uncalibrated": raw_test_metrics if platt_enabled else None,
+        "platt_calibration": calibration_info,
         "latency": latency,
     }
 
@@ -843,7 +949,7 @@ def run_training(
             metrics=test_result.metrics,
             history=summary.history,
             y_true=test_result.labels,
-            y_pred=test_result.predictions,
+            y_pred=final_y_pred,
             y_train=y_train,
             y_val=y_val,
             y_test=y_test,
@@ -877,6 +983,38 @@ def _apply_cross_dataset_enhancements(cfg: ExperimentConfig, args: argparse.Name
         cfg.training.use_platt_calibration = bool(args.platt_calibration)
 
 
+def _apply_label_mode_overrides(cfg: ExperimentConfig, args: argparse.Namespace) -> None:
+    """Apply ``--label-mode`` and ``--selection-metric`` CLI overrides.
+
+    When ``--label-mode multiclass`` is chosen, the model ``num_classes`` is
+    auto-set from the resolved training dataset, and the selection metric is
+    promoted to ``macro_f1`` if the user has not chosen one explicitly.
+    Binary-only enhancements (AUC loss, Platt calibration) are disabled.
+    """
+    from nids.data.preprocessing import get_num_classes
+
+    if args.label_mode:
+        cfg.data.label_mode = args.label_mode
+
+    if cfg.data.label_mode in ("multiclass", "multi"):
+        train_ds = args.train_dataset or cfg.data.train_dataset
+        cfg.model.num_classes = get_num_classes(train_ds, cfg.data.label_mode)
+        if cfg.training.selection_metric in (
+            "recall_at_far_1pct",
+            "recall_at_far_5pct",
+            "pr_auc",
+            "roc_auc",
+            "best_f1",
+        ):
+            cfg.training.selection_metric = "macro_f1"
+        # Binary-only auxiliary losses / calibration have no meaning on CE logits.
+        cfg.training.use_auc_loss = False
+        cfg.training.use_platt_calibration = False
+
+    if args.selection_metric:
+        cfg.training.selection_metric = args.selection_metric
+
+
 def main() -> None:
     args = parse_args()
     if args.one_click and not args.models:
@@ -888,6 +1026,7 @@ def main() -> None:
         if not args.run_tag:
             args.run_tag = f"seed{int(args.seed)}"
     _apply_cross_dataset_enhancements(cfg, args)
+    _apply_label_mode_overrides(cfg, args)
     seed_everything(cfg.runtime.seed)
 
     train_ds = args.train_dataset or cfg.data.train_dataset
@@ -1000,6 +1139,7 @@ def main() -> None:
         if args.seed is not None:
             cfg_local.runtime.seed = int(args.seed)
         _apply_cross_dataset_enhancements(cfg_local, args)
+        _apply_label_mode_overrides(cfg_local, args)
         cfg_local.data.train_dataset = train_ds
         cfg_local.data.test_dataset = test_ds
         started_at = datetime.now().isoformat(timespec="seconds")

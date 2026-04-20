@@ -78,7 +78,7 @@ def get_num_classes(dataset: str, label_mode: str) -> int:
     """Return the number of target classes for the (dataset, label_mode) pair."""
     if label_mode == "binary":
         return 2
-    if label_mode != "multiclass":
+    if label_mode not in ("multiclass", "multi"):
         raise ValueError(f"Unknown label_mode={label_mode!r}")
     key = dataset.lower()
     if key == "cicids2017":
@@ -462,7 +462,15 @@ def align_features(
     return cicids_aligned, unsw_aligned
 
 
+def _normalize_label_mode(label_mode: str) -> str:
+    """Accept both ``multi`` and ``multiclass`` as synonyms."""
+    if label_mode == "multi":
+        return "multiclass"
+    return label_mode
+
+
 def prepare_labels(df: pd.DataFrame, dataset_name: str, label_mode: str = "binary") -> np.ndarray:
+    label_mode = _normalize_label_mode(label_mode)
     dataset = dataset_name.strip().lower()
     if dataset == "cicids2017":
         if "label" not in df.columns:

@@ -33,7 +33,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--train-dataset", default=None, choices=["cicids2017", "unsw_nb15"])
     parser.add_argument("--test-dataset", default=None, choices=["cicids2017", "unsw_nb15"])
-    parser.add_argument("--label-mode", choices=["binary", "multi"], default=None)
+    parser.add_argument(
+        "--label-mode", choices=["binary", "multi", "multiclass"], default=None
+    )
     parser.add_argument("--max-rows", type=int, default=None)
     parser.add_argument("--data-percentage", type=float, default=None, help="Percent of each dataset to use (0, 100]")
     return parser.parse_args()
