@@ -16,6 +16,7 @@ from nids.training.auc_loss import pairwise_auc_loss
 from nids.training.callbacks import EarlyStopping
 from nids.training.focal_loss import BinaryFocalLoss
 from nids.training.optimizers import build_optimizer, build_scheduler
+from nids.training.selection import compute_selection_metric
 from nids.utils.io import save_json
 from nids.utils.logging import get_logger
 
@@ -342,6 +343,15 @@ class Trainer:
         class_weights: np.ndarray | None = None,
         resume_checkpoint: str | Path | None = None,
     ) -> TrainingSummary:
+        # Fail fast if the configured selection_metric is incompatible with
+        # the task type (e.g. recall_at_far_1pct with a multiclass run).
+        compute_selection_metric(
+            self.config.selection_metric,
+            y_true=np.zeros(num_classes, dtype=np.int64),
+            y_pred=np.zeros(num_classes, dtype=np.int64),
+            y_score=None if num_classes > 2 else np.zeros(num_classes, dtype=np.float32),
+            num_classes=num_classes,
+        )
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model.to(device)
 
@@ -470,7 +480,13 @@ class Trainer:
                 show_progress=True,
             )
 
-            current_metric = float(val_result.metrics.get(self.config.selection_metric, 0.0))
+            current_metric = compute_selection_metric(
+                self.config.selection_metric,
+                y_true=val_result.labels,
+                y_pred=val_result.predictions,
+                y_score=val_result.scores,
+                num_classes=num_classes,
+            )
             history.append(
                 {
                     "epoch": epoch,
