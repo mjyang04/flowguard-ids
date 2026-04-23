@@ -1,6 +1,20 @@
 from .metrics import compute_nids_metrics
+from .two_stage import (
+    TwoStageResult,
+    binarize_scores,
+    combine_stages,
+    gating_stats,
+    run_two_stage,
+)
 
-__all__ = ["compute_nids_metrics"]
+__all__ = [
+    "compute_nids_metrics",
+    "TwoStageResult",
+    "binarize_scores",
+    "combine_stages",
+    "gating_stats",
+    "run_two_stage",
+]
 
 try:
     from .latency import measure_inference_latency

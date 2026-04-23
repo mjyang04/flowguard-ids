@@ -5,12 +5,14 @@ from nids.models.cnn_bilstm import CNNBiLSTM
 from nids.models.cnn_bilstm_at import CNNBiLSTMAT
 from nids.models.cnn_bilstm_attention import CNNBiLSTMAttention
 from nids.models.cnn_bilstm_se import CNNBiLSTMSE
+from nids.models.cnn_bilstm_se_transformer import CNNBiLSTMSETransformer
 from nids.models.ft_transformer import FTTransformer
 
 
 MODEL_REGISTRY = {
     "cnn_bilstm": CNNBiLSTM,
     "cnn_bilstm_se": CNNBiLSTMSE,
+    "cnn_bilstm_se_transformer": CNNBiLSTMSETransformer,
     "cnn_bilstm_attention": CNNBiLSTMAttention,
     "cnn_bilstm_at": CNNBiLSTMAT,
     "ft_transformer": FTTransformer,
@@ -57,6 +59,15 @@ def create_model(config: ModelConfig):
         kwargs["use_attention"] = config.use_attention
         kwargs["use_se"] = config.use_se
         kwargs["se_reduction"] = getattr(config, "se_reduction", 16)
+    elif key == "cnn_bilstm_se_transformer":
+        kwargs["use_attention"] = config.use_attention
+        kwargs["use_se"] = config.use_se
+        kwargs["se_reduction"] = getattr(config, "se_reduction", 16)
+        kwargs["transformer_layers"] = getattr(config, "transformer_layers", 2)
+        kwargs["transformer_heads"] = getattr(config, "transformer_heads", 4)
+        kwargs["transformer_dim_feedforward"] = getattr(
+            config, "transformer_dim_feedforward", 512
+        )
     elif key == "cnn_bilstm":
         kwargs["use_attention"] = config.use_attention
     elif key == "cnn_bilstm_attention":

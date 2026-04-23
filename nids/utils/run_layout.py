@@ -54,6 +54,7 @@ def find_latest_checkpoint_run(model_root: str | Path) -> Path | None:
 def experiment_group_name(train_ds: str, test_ds: str) -> str | None:
     mapping = {
         ("cicids2017", "cicids2017"): "same_cicids",
+        ("unsw_nb15", "unsw_nb15"): "same_unsw",
         ("cicids2017", "unsw_nb15"): "cross_cic_to_unsw",
         ("unsw_nb15", "cicids2017"): "cross_unsw_to_cic",
     }
