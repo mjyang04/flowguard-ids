@@ -1,25 +1,10 @@
+"""Training loop + SSL loss implementations.
+
+Populated in a follow-up session with:
+- ``CLANLoss`` (the CLAN novel contribution)
+- Re-implementations of SimCLR / Barlow Twins / BYOL / VICReg / SimSiam /
+  ConFlow / SSCL-IDS losses for head-to-head comparison
+- A generic ``Trainer`` orchestrating pretrain + fine-tune phases.
+"""
+
 __all__: list[str] = []
-
-try:
-    from .auc_loss import pairwise_auc_loss
-except ModuleNotFoundError as exc:
-    if exc.name != "torch":
-        raise
-else:
-    __all__.append("pairwise_auc_loss")
-
-try:
-    from .focal_loss import BinaryFocalLoss
-except ModuleNotFoundError as exc:
-    if exc.name != "torch":
-        raise
-else:
-    __all__.append("BinaryFocalLoss")
-
-try:
-    from .trainer import EvaluationResult, Trainer, TrainingSummary
-except ModuleNotFoundError as exc:
-    if exc.name != "torch":
-        raise
-else:
-    __all__.extend(["Trainer", "TrainingSummary", "EvaluationResult"])

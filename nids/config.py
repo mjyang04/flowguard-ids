@@ -1,3 +1,9 @@
+"""Experiment configuration for CLAN reproduction on Lycos2017.
+
+Minimal, immutable dataclasses loaded from YAML. Every tunable hyperparameter
+lives in ``configs/default.yaml``; never hardcode them in Python.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -7,300 +13,100 @@ from typing import Any
 import yaml
 
 
-def _default_common_features() -> list[str]:
-    # 55-dimensional unified NetFlow-style feature space.
-    return [
-        "dst_port",
-        "flow_duration",
-        "total_fwd_packets",
-        "total_bwd_packets",
-        "total_length_of_fwd_packets",
-        "total_length_of_bwd_packets",
-        "fwd_packet_length_max",
-        "fwd_packet_length_min",
-        "fwd_packet_length_mean",
-        "fwd_packet_length_std",
-        "bwd_packet_length_max",
-        "bwd_packet_length_min",
-        "bwd_packet_length_mean",
-        "bwd_packet_length_std",
-        "flow_bytes_per_sec",
-        "flow_packets_per_sec",
-        "flow_iat_mean",
-        "flow_iat_std",
-        "flow_iat_max",
-        "flow_iat_min",
-        "fwd_iat_total",
-        "fwd_iat_mean",
-        "fwd_iat_std",
-        "fwd_iat_max",
-        "fwd_iat_min",
-        "bwd_iat_total",
-        "bwd_iat_mean",
-        "bwd_iat_std",
-        "bwd_iat_max",
-        "bwd_iat_min",
-        "fwd_header_length",
-        "bwd_header_length",
-        "fwd_packets_per_sec",
-        "bwd_packets_per_sec",
-        "min_packet_length",
-        "max_packet_length",
-        "packet_length_mean",
-        "packet_length_std",
-        "packet_length_variance",
-        "fin_flag_count",
-        "syn_flag_count",
-        "rst_flag_count",
-        "psh_flag_count",
-        "ack_flag_count",
-        "urg_flag_count",
-        "down_up_ratio",
-        "average_packet_size",
-        "avg_fwd_segment_size",
-        "avg_bwd_segment_size",
-        "subflow_fwd_packets",
-        "subflow_fwd_bytes",
-        "subflow_bwd_packets",
-        "subflow_bwd_bytes",
-        "active_mean",
-        "idle_mean",
-    ]
-
-
-def _default_cicids_renaming_map() -> dict[str, str]:
-    return {
-        "destination_port": "dst_port",
-        "flow_duration": "flow_duration",
-        "total_fwd_packets": "total_fwd_packets",
-        "total_backward_packets": "total_bwd_packets",
-        "total_length_of_fwd_packets": "total_length_of_fwd_packets",
-        "total_length_of_bwd_packets": "total_length_of_bwd_packets",
-        "fwd_packet_length_max": "fwd_packet_length_max",
-        "fwd_packet_length_min": "fwd_packet_length_min",
-        "fwd_packet_length_mean": "fwd_packet_length_mean",
-        "fwd_packet_length_std": "fwd_packet_length_std",
-        "bwd_packet_length_max": "bwd_packet_length_max",
-        "bwd_packet_length_min": "bwd_packet_length_min",
-        "bwd_packet_length_mean": "bwd_packet_length_mean",
-        "bwd_packet_length_std": "bwd_packet_length_std",
-        "flow_bytes_s": "flow_bytes_per_sec",
-        "flow_packets_s": "flow_packets_per_sec",
-        "flow_iat_mean": "flow_iat_mean",
-        "flow_iat_std": "flow_iat_std",
-        "flow_iat_max": "flow_iat_max",
-        "flow_iat_min": "flow_iat_min",
-        "fwd_iat_total": "fwd_iat_total",
-        "fwd_iat_mean": "fwd_iat_mean",
-        "fwd_iat_std": "fwd_iat_std",
-        "fwd_iat_max": "fwd_iat_max",
-        "fwd_iat_min": "fwd_iat_min",
-        "bwd_iat_total": "bwd_iat_total",
-        "bwd_iat_mean": "bwd_iat_mean",
-        "bwd_iat_std": "bwd_iat_std",
-        "bwd_iat_max": "bwd_iat_max",
-        "bwd_iat_min": "bwd_iat_min",
-        "fwd_header_length": "fwd_header_length",
-        "bwd_header_length": "bwd_header_length",
-        "fwd_packets_s": "fwd_packets_per_sec",
-        "bwd_packets_s": "bwd_packets_per_sec",
-        "min_packet_length": "min_packet_length",
-        "max_packet_length": "max_packet_length",
-        "packet_length_mean": "packet_length_mean",
-        "packet_length_std": "packet_length_std",
-        "packet_length_variance": "packet_length_variance",
-        "fin_flag_count": "fin_flag_count",
-        "syn_flag_count": "syn_flag_count",
-        "rst_flag_count": "rst_flag_count",
-        "psh_flag_count": "psh_flag_count",
-        "ack_flag_count": "ack_flag_count",
-        "urg_flag_count": "urg_flag_count",
-        "down_up_ratio": "down_up_ratio",
-        "average_packet_size": "average_packet_size",
-        "avg_fwd_segment_size": "avg_fwd_segment_size",
-        "avg_bwd_segment_size": "avg_bwd_segment_size",
-        "subflow_fwd_packets": "subflow_fwd_packets",
-        "subflow_fwd_bytes": "subflow_fwd_bytes",
-        "subflow_bwd_packets": "subflow_bwd_packets",
-        "subflow_bwd_bytes": "subflow_bwd_bytes",
-        "active_mean": "active_mean",
-        "idle_mean": "idle_mean",
-    }
-
-
-def _default_unsw_renaming_map() -> dict[str, str]:
-    return {
-        "dur": "flow_duration",
-        "spkts": "total_fwd_packets",
-        "dpkts": "total_bwd_packets",
-        "sbytes": "total_length_of_fwd_packets",
-        "dbytes": "total_length_of_bwd_packets",
-        "smean": "fwd_packet_length_mean",
-        "dmean": "bwd_packet_length_mean",
-        "rate": "flow_packets_per_sec",
-        "sinpkt": "fwd_iat_mean",
-        "dinpkt": "bwd_iat_mean",
-        "sjit": "fwd_iat_std",
-        "djit": "bwd_iat_std",
-        "dsport": "dst_port",
-    }
-
-
-@dataclass
+@dataclass(frozen=True)
 class DataConfig:
     data_dir: str = "data/raw"
     processed_dir: str = "data/processed"
-    train_dataset: str = "cicids2017"
-    test_dataset: str = "unsw_nb15"
-    data_percentage: float = 100.0
-    batch_size: int = 512
+    dataset: str = "lycos2017"
+    csv_path: str = "data/raw/lycos.csv"
+    batch_size: int = 256
     num_workers: int = 0
     train_ratio: float = 0.8
     val_ratio: float = 0.1
     scaler_type: str = "minmax"
-    label_mode: str = "binary"
-    max_rows: int | None = None
+    benign_label: str = "BENIGN"
     random_state: int = 42
-    stratify: bool = True
 
 
-@dataclass
+@dataclass(frozen=True)
 class ModelConfig:
-    name: str = "cnn_bilstm_se"
-    input_dim: int = 55
-    num_classes: int = 2
-    conv_channels: list[int] = field(default_factory=lambda: [64, 128])
-    conv_kernel_sizes: list[int] = field(default_factory=lambda: [3, 3])
-    conv_pool_sizes: list[int] = field(default_factory=lambda: [2, 2])
+    """CLDNN encoder hyperparameters (CLAN default)."""
+
+    name: str = "cldnn"
+    input_dim: int = 78
+    embedding_dim: int = 128
+    conv_channels: tuple[int, ...] = (64, 128)
+    conv_kernel_sizes: tuple[int, ...] = (3, 3)
     lstm_hidden_size: int = 128
-    lstm_num_layers: int = 2
-    dropout: float = 0.3
+    lstm_num_layers: int = 1
     bidirectional: bool = True
-    use_se: bool = True
-    se_reduction: int = 16
-    use_attention: bool = False
-    # FT-Transformer specific (ignored by other models)
-    d_token: int = 64
-    n_blocks: int = 3
-    attention_heads: int = 4
-    ffn_factor: float = 2.0
-    # CNN-BiLSTM-SE-Transformer specific (ignored by other models)
-    transformer_layers: int = 2
-    transformer_heads: int = 4
-    transformer_dim_feedforward: int = 512
+    dropout: float = 0.2
+    l2_normalize: bool = True
 
 
-@dataclass
+@dataclass(frozen=True)
+class LossConfig:
+    """Loss configuration. ``name`` selects which SSL loss drives training."""
+
+    name: str = "clan"  # clan | simclr | barlow_twins | byol | vicreg | simsiam | conflow | sscl_ids
+    margin: float = 1.0
+    temperature: float = 0.5
+
+
+@dataclass(frozen=True)
+class AugmentationConfig:
+    """Augmentation strategy used to produce negative samples in CLAN."""
+
+    name: str = "gaussian_noise"
+    noise_std: float = 0.1
+    feature_dropout_prob: float = 0.1
+
+
+@dataclass(frozen=True)
 class TrainingConfig:
-    num_epochs: int = 30
+    num_epochs: int = 50
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
     optimizer: str = "adamw"
     use_scheduler: bool = True
-    scheduler: str = "plateau"
-    scheduler_factor: float = 0.5
-    scheduler_patience: int = 2
-    min_learning_rate: float = 1e-6
+    scheduler: str = "cosine"
     use_early_stopping: bool = True
-    early_stopping_patience: int = 5
-    early_stopping_delta: float = 1e-4
+    early_stopping_patience: int = 10
     gradient_clip: float = 1.0
     amp: bool = True
-    selection_metric: str = "recall_at_far_1pct"
-    loss_type: str = "bce"  # bce | focal
-    focal_alpha: float = 0.25
-    focal_gamma: float = 2.0
-    label_smoothing: float = 0.0
-    use_auc_loss: bool = False
-    auc_loss_lambda: float = 0.1
-    auc_loss_margin: float = 1.0
-    auc_loss_num_neg: int = 5
-    use_platt_calibration: bool = False
-    use_tqdm: bool = True
-    show_eval_tqdm: bool = False
+    eval_metric: str = "roc_auc"
 
 
-@dataclass
-class ShapConfig:
-    n_samples: int = 2000
-    background_size: int = 100
-    top_k: int = 30
-    top_k_choices: list[int] = field(default_factory=lambda: [20, 30, 50])
-    reference_train_dataset: str = "cicids2017"
-    reference_test_dataset: str = "cicids2017"
-    reference_model_name: str = "cnn_bilstm_se"
-    cumulative_threshold: float = 0.9
+@dataclass(frozen=True)
+class FinetuneConfig:
+    """Few-shot fine-tune on labelled samples for multiclass evaluation."""
+
+    shots_per_class: tuple[int, ...] = (8, 16, 32, 64, 128, 256, 512, 1024)
+    num_epochs: int = 20
+    learning_rate: float = 1e-3
+    head_hidden_dim: int = 64
 
 
-@dataclass
-class AlignmentConfig:
-    common_features: list[str] = field(default_factory=_default_common_features)
-    cicids_renaming_map: dict[str, str] = field(default_factory=_default_cicids_renaming_map)
-    unsw_renaming_map: dict[str, str] = field(default_factory=_default_unsw_renaming_map)
-
-
-@dataclass
+@dataclass(frozen=True)
 class RuntimeConfig:
     output_dir: str = "artifacts"
     seed: int = 42
     device: str = "auto"
 
 
-def _default_pipeline_directions() -> list[list[str]]:
-    """Default same-dataset direction pairs.
-
-    Same-dataset only; cross-dataset transfer is a secondary track and is
-    produced by overriding ``pipeline.directions`` via CLI or config.
-    """
-    return [
-        ["cicids2017", "cicids2017"],
-        ["unsw_nb15", "unsw_nb15"],
-    ]
-
-
-def _default_pipeline_models() -> list[str]:
-    return ["cnn_bilstm_se_transformer", "cnn_bilstm_se", "random_forest", "xgboost"]
-
-
-def _default_pipeline_seeds() -> list[int]:
-    return [42, 43, 44]
-
-
-@dataclass
-class PipelineConfig:
-    """Defaults for batch experiment + two-stage cascade pipelines.
-
-    Every field here has a sensible default, so `python scripts/run_two_stage_pipeline.py
-    --config configs/default.yaml` with no further flags reproduces the headline
-    thesis experiment matrix. Individual CLI flags still override these values.
-    """
-
-    models: list[str] = field(default_factory=_default_pipeline_models)
-    seeds: list[int] = field(default_factory=_default_pipeline_seeds)
-    directions: list[list[str]] = field(default_factory=_default_pipeline_directions)
-    do_train: bool = False
-    force: bool = False
-    one_click: bool = True
-    imbalance_strategy: str = "auto"
-    cross_dataset_enhancements: bool = True
-    stage1_threshold: float = 0.5
-    benign_class: int = 0
-    summary_path: str = "artifacts/two_stage_summary.json"
-
-
-@dataclass
+@dataclass(frozen=True)
 class ExperimentConfig:
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
+    loss: LossConfig = field(default_factory=LossConfig)
+    augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
-    shap: ShapConfig = field(default_factory=ShapConfig)
-    alignment: AlignmentConfig = field(default_factory=AlignmentConfig)
+    finetune: FinetuneConfig = field(default_factory=FinetuneConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
-    pipeline: PipelineConfig = field(default_factory=PipelineConfig)
 
 
-def _dataclass_from_dict(cls: type[Any], data: dict[str, Any]) -> Any:
-    kwargs = {}
+def _from_dict(cls: type[Any], data: dict[str, Any]) -> Any:
+    kwargs: dict[str, Any] = {}
     for field_def in cls.__dataclass_fields__.values():  # type: ignore[attr-defined]
         name = field_def.name
         if name not in data:
@@ -308,44 +114,53 @@ def _dataclass_from_dict(cls: type[Any], data: dict[str, Any]) -> Any:
         value = data[name]
         field_type = field_def.type
         if hasattr(field_type, "__dataclass_fields__") and isinstance(value, dict):
-            kwargs[name] = _dataclass_from_dict(field_type, value)
+            kwargs[name] = _from_dict(field_type, value)
+        elif isinstance(value, list) and _is_tuple_field(field_def):
+            kwargs[name] = tuple(value)
         else:
             kwargs[name] = value
     return cls(**kwargs)
+
+
+def _is_tuple_field(field_def: Any) -> bool:
+    annotation = field_def.type
+    return isinstance(annotation, str) and annotation.startswith("tuple")
 
 
 def load_config(config_path: str | Path | None = None) -> ExperimentConfig:
     if config_path is None:
         return ExperimentConfig()
 
-    path = Path(config_path)
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-
+    raw = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
     return ExperimentConfig(
-        data=_dataclass_from_dict(DataConfig, raw.get("data", {})),
-        model=_dataclass_from_dict(ModelConfig, raw.get("model", {})),
-        training=_dataclass_from_dict(TrainingConfig, raw.get("training", {})),
-        shap=_dataclass_from_dict(ShapConfig, raw.get("shap", {})),
-        alignment=_dataclass_from_dict(AlignmentConfig, raw.get("alignment", {})),
-        runtime=_dataclass_from_dict(RuntimeConfig, raw.get("runtime", {})),
-        pipeline=_dataclass_from_dict(PipelineConfig, raw.get("pipeline", {})),
+        data=_from_dict(DataConfig, raw.get("data", {})),
+        model=_from_dict(ModelConfig, raw.get("model", {})),
+        loss=_from_dict(LossConfig, raw.get("loss", {})),
+        augmentation=_from_dict(AugmentationConfig, raw.get("augmentation", {})),
+        training=_from_dict(TrainingConfig, raw.get("training", {})),
+        finetune=_from_dict(FinetuneConfig, raw.get("finetune", {})),
+        runtime=_from_dict(RuntimeConfig, raw.get("runtime", {})),
     )
 
 
 def save_config(config: ExperimentConfig, output_path: str | Path) -> None:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _to_dict(obj: Any) -> Any:
+        if hasattr(obj, "__dataclass_fields__"):
+            return {k: _to_dict(v) for k, v in obj.__dict__.items()}
+        if isinstance(obj, tuple):
+            return list(obj)
+        return obj
+
     payload = {
-        "data": config.data.__dict__,
-        "model": config.model.__dict__,
-        "training": config.training.__dict__,
-        "shap": config.shap.__dict__,
-        "alignment": {
-            "common_features": config.alignment.common_features,
-            "cicids_renaming_map": config.alignment.cicids_renaming_map,
-            "unsw_renaming_map": config.alignment.unsw_renaming_map,
-        },
-        "runtime": config.runtime.__dict__,
-        "pipeline": config.pipeline.__dict__,
+        "data": _to_dict(config.data),
+        "model": _to_dict(config.model),
+        "loss": _to_dict(config.loss),
+        "augmentation": _to_dict(config.augmentation),
+        "training": _to_dict(config.training),
+        "finetune": _to_dict(config.finetune),
+        "runtime": _to_dict(config.runtime),
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")

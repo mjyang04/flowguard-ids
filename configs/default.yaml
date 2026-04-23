@@ -1,111 +1,68 @@
+# CLAN reproduction on Lycos2017 — every tunable knob lives here.
+# Paper: Wilkie et al., "CLAN: Contrastive Self-Supervised NIDS Using Augmented Negative Pairs", IEEE CSR 2025.
+# Reference repo: https://github.com/jackwilkie/CLAN
+
 data:
   data_dir: data/raw
   processed_dir: data/processed
-  train_dataset: cicids2017
-  test_dataset: unsw_nb15
-  data_percentage: 100
-  batch_size: 512
+  dataset: lycos2017
+  csv_path: data/raw/lycos.csv
+  batch_size: 256
   num_workers: 0
   train_ratio: 0.8
   val_ratio: 0.1
   scaler_type: minmax
-  # label_mode: "binary" (default) or "multiclass". When running multiclass
-  # pass `--label-mode multiclass` to scripts/train.py or scripts/run_experiments.py;
-  # num_classes is auto-resolved per training dataset (CIC=15, UNSW=10).
-  label_mode: binary
+  benign_label: BENIGN
   random_state: 42
-  stratify: true
 
 model:
-  name: cnn_bilstm_se
-  input_dim: 55
-  num_classes: 2
+  # CLDNN encoder — CLAN paper default.
+  name: cldnn
+  input_dim: 78
+  embedding_dim: 128
   conv_channels: [64, 128]
   conv_kernel_sizes: [3, 3]
-  conv_pool_sizes: [2, 2]
   lstm_hidden_size: 128
-  lstm_num_layers: 2
-  dropout: 0.3
+  lstm_num_layers: 1
   bidirectional: true
-  use_se: true
-  se_reduction: 16
-  use_attention: false
-  # FT-Transformer hyperparameters (only consumed when model.name == ft_transformer)
-  d_token: 64
-  n_blocks: 3
-  attention_heads: 4
-  ffn_factor: 2.0
+  dropout: 0.2
+  l2_normalize: true
+
+loss:
+  # Primary contribution of CLAN: augmented samples act as hard negatives.
+  # Swap to one of {simclr, barlow_twins, byol, vicreg, simsiam, conflow, sscl_ids}
+  # to run a head-to-head SSL baseline comparison.
+  name: clan
+  margin: 1.0
+  temperature: 0.5
+
+augmentation:
+  # Strategy used to generate "negative" views of benign flows.
+  name: gaussian_noise
+  noise_std: 0.1
+  feature_dropout_prob: 0.1
 
 training:
-  num_epochs: 30
+  num_epochs: 50
   learning_rate: 0.001
   weight_decay: 0.0001
   optimizer: adamw
   use_scheduler: true
-  scheduler: plateau
-  scheduler_factor: 0.5
-  scheduler_patience: 2
-  min_learning_rate: 0.000001
+  scheduler: cosine
   use_early_stopping: true
-  early_stopping_patience: 5
-  early_stopping_delta: 0.0001
+  early_stopping_patience: 10
   gradient_clip: 1.0
   amp: true
-  selection_metric: recall_at_far_1pct
-  loss_type: bce
-  focal_alpha: 0.25
-  focal_gamma: 2.0
-  label_smoothing: 0.0
-  use_auc_loss: false
-  auc_loss_lambda: 0.1
-  auc_loss_margin: 1.0
-  auc_loss_num_neg: 5
-  use_platt_calibration: false
-  use_tqdm: true
-  show_eval_tqdm: false
+  eval_metric: roc_auc
 
-shap:
-  n_samples: 2000
-  background_size: 100
-  top_k: 30
-  top_k_choices: [20, 30, 50]
-  reference_train_dataset: cicids2017
-  reference_test_dataset: cicids2017
-  reference_model_name: cnn_bilstm_se
-  cumulative_threshold: 0.9
+finetune:
+  # Few-shot multiclass fine-tune sweep (per-class sample counts).
+  shots_per_class: [8, 16, 32, 64, 128, 256, 512, 1024]
+  num_epochs: 20
+  learning_rate: 0.001
+  head_hidden_dim: 64
 
 runtime:
   output_dir: artifacts
   seed: 42
   device: auto
-
-# Pipeline-level defaults. Every field can still be overridden via CLI; leaving
-# them in config means the headline command is just:
-#   python scripts/run_two_stage_pipeline.py --config configs/default.yaml
-# For a single-model debug run, override via:
-#   python scripts/train.py --config configs/default.yaml --models cnn_bilstm_se
-pipeline:
-  # Default model set (primary backbone + ablation baseline + classical reference).
-  models:
-    - cnn_bilstm_se_transformer
-    - cnn_bilstm_se
-    - random_forest
-    - xgboost
-  # Multi-seed evaluation for mean±std reporting.
-  seeds: [42, 43, 44]
-  # Same-dataset directions; add ["cicids2017", "unsw_nb15"] to re-enable the
-  # secondary cross-dataset track.
-  directions:
-    - [cicids2017, cicids2017]
-    - [unsw_nb15, unsw_nb15]
-  # Training orchestration. do_train=true triggers run_experiments.py for both
-  # binary and multiclass label modes before cascade evaluation.
-  do_train: true
-  force: false
-  one_click: true
-  imbalance_strategy: auto
-  cross_dataset_enhancements: true
-  # Two-stage cascade knobs.
-  stage1_threshold: 0.5
-  benign_class: 0
-  summary_path: artifacts/two_stage_summary.json

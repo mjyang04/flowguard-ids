@@ -3,8 +3,10 @@ from .logging import get_logger
 
 try:
     from .reproducibility import seed_everything
-except Exception:  # noqa: BLE001
-    seed_everything = None
+except ModuleNotFoundError as exc:
+    if exc.name != "torch":
+        raise
+    seed_everything = None  # type: ignore[assignment]
 
 __all__ = [
     "ensure_dir",
