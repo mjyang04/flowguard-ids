@@ -78,3 +78,34 @@ runtime:
   output_dir: artifacts
   seed: 42
   device: auto
+
+# Pipeline-level defaults. Every field can still be overridden via CLI; leaving
+# them in config means the headline command is just:
+#   python scripts/run_two_stage_pipeline.py --config configs/default.yaml
+# For a single-model debug run, override via:
+#   python scripts/train.py --config configs/default.yaml --models cnn_bilstm_se
+pipeline:
+  # Default model set (primary backbone + ablation baseline + classical reference).
+  models:
+    - cnn_bilstm_se_transformer
+    - cnn_bilstm_se
+    - random_forest
+    - xgboost
+  # Multi-seed evaluation for mean±std reporting.
+  seeds: [42, 43, 44]
+  # Same-dataset directions; add ["cicids2017", "unsw_nb15"] to re-enable the
+  # secondary cross-dataset track.
+  directions:
+    - [cicids2017, cicids2017]
+    - [unsw_nb15, unsw_nb15]
+  # Training orchestration. do_train=true triggers run_experiments.py for both
+  # binary and multiclass label modes before cascade evaluation.
+  do_train: true
+  force: false
+  one_click: true
+  imbalance_strategy: auto
+  cross_dataset_enhancements: true
+  # Two-stage cascade knobs.
+  stage1_threshold: 0.5
+  benign_class: 0
+  summary_path: artifacts/two_stage_summary.json

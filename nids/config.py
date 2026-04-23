@@ -184,6 +184,10 @@ class ModelConfig:
     n_blocks: int = 3
     attention_heads: int = 4
     ffn_factor: float = 2.0
+    # CNN-BiLSTM-SE-Transformer specific (ignored by other models)
+    transformer_layers: int = 2
+    transformer_heads: int = 4
+    transformer_dim_feedforward: int = 512
 
 
 @dataclass
@@ -242,6 +246,48 @@ class RuntimeConfig:
     device: str = "auto"
 
 
+def _default_pipeline_directions() -> list[list[str]]:
+    """Default same-dataset direction pairs.
+
+    Same-dataset only; cross-dataset transfer is a secondary track and is
+    produced by overriding ``pipeline.directions`` via CLI or config.
+    """
+    return [
+        ["cicids2017", "cicids2017"],
+        ["unsw_nb15", "unsw_nb15"],
+    ]
+
+
+def _default_pipeline_models() -> list[str]:
+    return ["cnn_bilstm_se_transformer", "cnn_bilstm_se", "random_forest", "xgboost"]
+
+
+def _default_pipeline_seeds() -> list[int]:
+    return [42, 43, 44]
+
+
+@dataclass
+class PipelineConfig:
+    """Defaults for batch experiment + two-stage cascade pipelines.
+
+    Every field here has a sensible default, so `python scripts/run_two_stage_pipeline.py
+    --config configs/default.yaml` with no further flags reproduces the headline
+    thesis experiment matrix. Individual CLI flags still override these values.
+    """
+
+    models: list[str] = field(default_factory=_default_pipeline_models)
+    seeds: list[int] = field(default_factory=_default_pipeline_seeds)
+    directions: list[list[str]] = field(default_factory=_default_pipeline_directions)
+    do_train: bool = False
+    force: bool = False
+    one_click: bool = True
+    imbalance_strategy: str = "auto"
+    cross_dataset_enhancements: bool = True
+    stage1_threshold: float = 0.5
+    benign_class: int = 0
+    summary_path: str = "artifacts/two_stage_summary.json"
+
+
 @dataclass
 class ExperimentConfig:
     data: DataConfig = field(default_factory=DataConfig)
@@ -250,6 +296,7 @@ class ExperimentConfig:
     shap: ShapConfig = field(default_factory=ShapConfig)
     alignment: AlignmentConfig = field(default_factory=AlignmentConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    pipeline: PipelineConfig = field(default_factory=PipelineConfig)
 
 
 def _dataclass_from_dict(cls: type[Any], data: dict[str, Any]) -> Any:
@@ -281,6 +328,7 @@ def load_config(config_path: str | Path | None = None) -> ExperimentConfig:
         shap=_dataclass_from_dict(ShapConfig, raw.get("shap", {})),
         alignment=_dataclass_from_dict(AlignmentConfig, raw.get("alignment", {})),
         runtime=_dataclass_from_dict(RuntimeConfig, raw.get("runtime", {})),
+        pipeline=_dataclass_from_dict(PipelineConfig, raw.get("pipeline", {})),
     )
 
 
@@ -298,5 +346,6 @@ def save_config(config: ExperimentConfig, output_path: str | Path) -> None:
             "unsw_renaming_map": config.alignment.unsw_renaming_map,
         },
         "runtime": config.runtime.__dict__,
+        "pipeline": config.pipeline.__dict__,
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")

@@ -75,11 +75,18 @@ def _minimal_args(**overrides) -> Namespace:
         models=None,
         force=False,
         one_click=False,
-        profile="default",
         seeds=None,
         cross_dataset_enhancements=True,
         output_dir="artifacts/experiments",
         label_mode="binary",
+        # ``directions`` is populated by _apply_pipeline_config_defaults at
+        # runtime; tests provide an explicit list so _resolve_experiments can
+        # run without loading any config file.
+        directions=[
+            ("cicids2017", "cicids2017"),
+            ("unsw_nb15", "unsw_nb15"),
+            ("cicids2017", "unsw_nb15"),
+        ],
     )
     defaults.update(overrides)
     return Namespace(**defaults)
@@ -95,12 +102,11 @@ def test_run_experiments_uses_canonical_train_output_by_default() -> None:
     assert "--output-dir" not in cmd
 
 
-def test_laptop_3060_profile_runs_expected_subset() -> None:
-    args = _minimal_args(profile="laptop_3060", one_click=True)
-    resolved = run_experiments_script._apply_profile_defaults(args)
-    experiments = run_experiments_script._resolve_experiments(resolved)
+def test_resolve_experiments_reflects_args_directions() -> None:
+    args = _minimal_args(one_click=True)
+    experiments = run_experiments_script._resolve_experiments(args)
     cmd = run_experiments_script._build_train_command(
-        args=resolved,
+        args=args,
         train_ds="cicids2017",
         test_ds="unsw_nb15",
     )
@@ -109,8 +115,21 @@ def test_laptop_3060_profile_runs_expected_subset() -> None:
         ("same_unsw", "unsw_nb15", "unsw_nb15"),
         ("cross_cic_to_unsw", "cicids2017", "unsw_nb15"),
     ]
+    # one_click means --models defaults to "all" inside the built train command.
     assert "--models" in cmd
-    assert cmd[cmd.index("--models") + 1] == "cnn_bilstm_se,random_forest,xgboost"
+    assert cmd[cmd.index("--models") + 1] == "all"
+
+
+def test_parse_directions_flag_parses_train_test_pairs() -> None:
+    parsed = run_experiments_script._parse_directions_flag(
+        "cicids2017:cicids2017, unsw_nb15:unsw_nb15"
+    )
+    assert parsed == [
+        ("cicids2017", "cicids2017"),
+        ("unsw_nb15", "unsw_nb15"),
+    ]
+    assert run_experiments_script._parse_directions_flag(None) is None
+    assert run_experiments_script._parse_directions_flag("") is None
 
 
 def test_resolve_seeds_default_and_multi() -> None:
@@ -170,11 +189,10 @@ def test_one_click_passes_resume_and_models() -> None:
 
 
 def test_multiclass_label_mode_restricts_to_same_dataset_rows() -> None:
-    args = _minimal_args(profile="laptop_3060", one_click=True, label_mode="multiclass")
-    resolved = run_experiments_script._apply_profile_defaults(args)
-    experiments = run_experiments_script._resolve_experiments(resolved)
+    args = _minimal_args(one_click=True, label_mode="multiclass")
+    experiments = run_experiments_script._resolve_experiments(args)
     names = {e[0] for e in experiments}
-    # Cross directions are dropped because the thesis no longer reports cross.
+    # Cross directions are dropped because multiclass has no cross-dataset mapping.
     assert "same_cicids" in names
     assert "same_unsw" in names
     assert "cross_cic_to_unsw" not in names

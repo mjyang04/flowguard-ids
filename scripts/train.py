@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from nids.config import ExperimentConfig, load_config, save_config
 from nids.data.dataset import create_dataloaders
-from nids.data.preprocessing import apply_oversampling, apply_smote, compute_class_weights
+from nids.data.preprocessing import apply_oversampling, apply_smote
 from nids.evaluation.calibration import PlattCalibrator, collect_logits
 from nids.evaluation.metrics import compute_nids_metrics
 from nids.models.classical import predict_binary_scores, train_random_forest, train_xgboost
@@ -44,7 +44,14 @@ from nids.utils.visualization import (
 )
 
 TOPK_MODEL_ALIASES = {"cnn_bilstm_se_fs": "cnn_bilstm_se_topk"}
-TRAINABLE_DEEP_MODELS = ["cnn_bilstm", "cnn_bilstm_se", "cnn_bilstm_se_topk", "cnn_bilstm_at"]
+TRAINABLE_DEEP_MODELS = [
+    "cnn_bilstm",
+    "cnn_bilstm_se",
+    "cnn_bilstm_se_topk",
+    "cnn_bilstm_se_transformer",
+    "cnn_bilstm_at",
+    "ft_transformer",
+]
 CLASSICAL_MODELS = ["random_forest", "xgboost"]
 TRAINABLE_MODELS = TRAINABLE_DEEP_MODELS + CLASSICAL_MODELS
 CLI_MODEL_CHOICES = TRAINABLE_MODELS + list(TOPK_MODEL_ALIASES.keys())
@@ -54,7 +61,9 @@ MODEL_NAME_FOR_RUN = {
     "cnn_bilstm": "CNN-BiLSTM",
     "cnn_bilstm_se": "CNN-BiLSTM-SE",
     "cnn_bilstm_se_topk": "CNN-BiLSTM-SE-TopK",
+    "cnn_bilstm_se_transformer": "CNN-BiLSTM-SE-Transformer",
     "cnn_bilstm_at": "CNN-BiLSTM-AT",
+    "ft_transformer": "FT-Transformer",
     "random_forest": "RandomForest",
     "xgboost": "XGBoost",
 }
@@ -1017,14 +1026,33 @@ def _apply_label_mode_overrides(cfg: ExperimentConfig, args: argparse.Namespace)
 
 def main() -> None:
     args = parse_args()
+    cfg = load_config(args.config)
+
+    # Fill in CLI defaults from cfg.pipeline when the user did not pass them.
+    # The CLI always wins: config only applies when the flag is at its
+    # unspecified sentinel (False for store_true, "auto" for imbalance).
+    if not args.one_click and cfg.pipeline.one_click:
+        args.one_click = True
+    if not args.force and cfg.pipeline.force:
+        args.force = True
+    if args.imbalance_strategy == "auto" and cfg.pipeline.imbalance_strategy:
+        args.imbalance_strategy = cfg.pipeline.imbalance_strategy
+    if args.cross_dataset_enhancements is None:
+        args.cross_dataset_enhancements = bool(cfg.pipeline.cross_dataset_enhancements)
+    args.skip_existing = not args.force
+
     if args.one_click and not args.models:
         args.models = "all"
 
-    cfg = load_config(args.config)
     if args.seed is not None:
         cfg.runtime.seed = int(args.seed)
         if not args.run_tag:
             args.run_tag = f"seed{int(args.seed)}"
+    # Apply overrides to `cfg` so the early-path decisions below (data_file
+    # resolution, multiclass suffix in base_output_dir, model list) see the
+    # correct label_mode and cross-dataset enhancement flags. The per-model
+    # loop later reloads `cfg_local` for each model so mutations don't bleed
+    # across models.
     _apply_cross_dataset_enhancements(cfg, args)
     _apply_label_mode_overrides(cfg, args)
     seed_everything(cfg.runtime.seed)
@@ -1035,10 +1063,20 @@ def main() -> None:
     data_file = _ensure_data_artifact(cfg, args, train_ds, test_ds, logger)
     models = _resolve_models(args, cfg)
 
+    # Multiclass runs get their own suffix so they do not clobber binary artifacts
+    # living under <train>_to_<test>/<model>/. Same-dataset binary remains unchanged.
+    multiclass_suffix = (
+        "_multiclass" if cfg.data.label_mode in ("multiclass", "multi") else ""
+    )
     if args.output_dir:
         base_output_dir = Path(args.output_dir)
+        if multiclass_suffix and not base_output_dir.name.endswith(multiclass_suffix):
+            base_output_dir = base_output_dir.parent / f"{base_output_dir.name}{multiclass_suffix}"
     else:
-        base_output_dir = Path(cfg.runtime.output_dir) / f"{train_ds}_to_{test_ds}"
+        base_output_dir = (
+            Path(cfg.runtime.output_dir)
+            / f"{train_ds}_to_{test_ds}{multiclass_suffix}"
+        )
     base_output_dir.mkdir(parents=True, exist_ok=True)
 
     reports = {}

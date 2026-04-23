@@ -8,23 +8,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from nids.config import load_config
 from nids.utils.io import save_json
 from nids.utils.logging import get_logger
 from nids.utils.process import run_command
 
-DEFAULT_EXPERIMENTS = [
-    ("same_cicids", "cicids2017", "cicids2017"),
-    ("same_unsw", "unsw_nb15", "unsw_nb15"),
-    ("cross_cic_to_unsw", "cicids2017", "unsw_nb15"),
-    ("cross_unsw_to_cic", "unsw_nb15", "cicids2017"),
-]
-MULTICLASS_EXPERIMENTS = [
-    ("same_cicids", "cicids2017", "cicids2017"),
-    ("same_unsw", "unsw_nb15", "unsw_nb15"),
-]
-LAPTOP_3060_EXPERIMENTS = ["same_cicids", "same_unsw", "cross_cic_to_unsw"]
-LAPTOP_3060_MODELS = ["cnn_bilstm_se", "random_forest", "xgboost"]
-DEFAULT_SEEDS = [42, 43, 44]
+# Direction name map keeps legacy experiment keys stable across refactors.
+# Any direction tuple not in the map falls back to ``<train>_to_<test>``.
+DIRECTION_NAME_MAP = {
+    ("cicids2017", "cicids2017"): "same_cicids",
+    ("unsw_nb15", "unsw_nb15"): "same_unsw",
+    ("cicids2017", "unsw_nb15"): "cross_cic_to_unsw",
+    ("unsw_nb15", "cicids2017"): "cross_unsw_to_cic",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,15 +32,17 @@ def parse_args() -> argparse.Namespace:
         help="Directory for the experiment_status.json summary",
     )
     parser.add_argument(
-        "--profile",
-        default="default",
-        choices=["default", "laptop_3060"],
-        help="Experiment profile: 'default' runs the full matrix; 'laptop_3060' is the RTX 3060 preset",
-    )
-    parser.add_argument(
         "--models",
         default=None,
-        help="Model selection: single name, comma-separated list, or 'all'",
+        help="Override pipeline.models: single name, comma-separated list, or 'all'",
+    )
+    parser.add_argument(
+        "--directions",
+        default=None,
+        help=(
+            "Override pipeline.directions. Format: 'train:test,train:test' "
+            "(e.g. 'cicids2017:cicids2017,unsw_nb15:unsw_nb15')."
+        ),
     )
     parser.add_argument(
         "--one-click",
@@ -83,22 +81,37 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _apply_profile_defaults(args: argparse.Namespace) -> argparse.Namespace:
-    resolved = argparse.Namespace(**vars(args))
-    if resolved.profile == "laptop_3060" and not resolved.models:
-        resolved.models = ",".join(LAPTOP_3060_MODELS)
-    return resolved
+def _parse_directions_flag(raw: str | None) -> list[tuple[str, str]] | None:
+    """Parse ``--directions`` CLI value into ``[(train, test), ...]`` or ``None``."""
+    if not raw:
+        return None
+    out: list[tuple[str, str]] = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" not in item:
+            raise ValueError(f"Invalid direction spec {item!r}; expected 'train:test'")
+        train, test = item.split(":", 1)
+        out.append((train.strip(), test.strip()))
+    return out
 
 
 def _resolve_experiments(args: argparse.Namespace) -> list[tuple[str, str, str]]:
-    label_mode = getattr(args, "label_mode", "binary")
-    if label_mode == "multiclass":
-        # Multiclass is same-dataset only by design (no cross-dataset mapping).
-        return list(MULTICLASS_EXPERIMENTS)
-    if args.profile == "laptop_3060":
-        allowed = set(LAPTOP_3060_EXPERIMENTS)
-        return [e for e in DEFAULT_EXPERIMENTS if e[0] in allowed]
-    return DEFAULT_EXPERIMENTS
+    """Build ``[(exp_name, train_ds, test_ds), ...]`` from resolved directions.
+
+    Expects ``args.directions`` to already be a ``list[tuple[str, str]]`` after
+    :func:`_apply_pipeline_config_defaults`.
+    """
+    directions: list[tuple[str, str]] = list(getattr(args, "directions", []) or [])
+    if getattr(args, "label_mode", "binary") == "multiclass":
+        # Multiclass has no cross-dataset mapping, so keep same-dataset rows only.
+        directions = [(t, te) for t, te in directions if t == te]
+    result: list[tuple[str, str, str]] = []
+    for train_ds, test_ds in directions:
+        name = DIRECTION_NAME_MAP.get((train_ds, test_ds), f"{train_ds}_to_{test_ds}")
+        result.append((name, train_ds, test_ds))
+    return result
 
 
 def _resolve_seeds(args: argparse.Namespace) -> list[int | None]:
@@ -156,8 +169,44 @@ def _build_train_command(
     return train_cmd
 
 
+def _apply_pipeline_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
+    """Fill in CLI defaults from ``cfg.pipeline`` when the user did not override.
+
+    The CLI layer still wins; this only activates for fields left at their
+    "unspecified" sentinel values (``None`` for lists, ``False`` for store_true
+    flags that we consider opt-in via config).
+    """
+    try:
+        cfg = load_config(args.config)
+    except FileNotFoundError:
+        return args
+
+    pipeline = cfg.pipeline
+    resolved = argparse.Namespace(**vars(args))
+    if resolved.models is None and pipeline.models:
+        resolved.models = ",".join(pipeline.models)
+    if resolved.seeds is None and pipeline.seeds:
+        resolved.seeds = list(pipeline.seeds)
+    if not resolved.one_click and pipeline.one_click:
+        resolved.one_click = True
+    if not resolved.force and pipeline.force:
+        resolved.force = True
+    # BooleanOptionalAction semantics for cross_dataset_enhancements: the CLI
+    # default is True, so we only override when the config explicitly says False.
+    if resolved.cross_dataset_enhancements and not pipeline.cross_dataset_enhancements:
+        resolved.cross_dataset_enhancements = False
+
+    # Directions: CLI --directions wins; otherwise fall back to cfg.pipeline.directions.
+    cli_directions = _parse_directions_flag(getattr(resolved, "directions", None))
+    if cli_directions is not None:
+        resolved.directions = cli_directions
+    else:
+        resolved.directions = [(d[0], d[1]) for d in pipeline.directions]
+    return resolved
+
+
 def main() -> None:
-    args = _apply_profile_defaults(parse_args())
+    args = _apply_pipeline_config_defaults(parse_args())
     logger = get_logger("run_experiments")
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -174,11 +223,19 @@ def main() -> None:
             exp_output_dir.mkdir(parents=True, exist_ok=True)
 
             # Multi-seed runs land in isolated artifact roots so skip-existing
-            # and Top-K lookups do not collide across seeds.
+            # and Top-K lookups do not collide across seeds. Multiclass runs
+            # also get an explicit suffix so they do not overwrite binary runs
+            # that share the same seed and direction.
+            label_mode = getattr(args, "label_mode", "binary")
+            multiclass_suffix = (
+                "_multiclass" if label_mode in ("multiclass", "multi") else ""
+            )
             train_output_dir: Path | None = None
             if multi_seed and seed is not None:
                 train_output_dir = (
-                    Path("artifacts") / f"seed{seed}" / f"{train_ds}_to_{test_ds}"
+                    Path("artifacts")
+                    / f"seed{seed}"
+                    / f"{train_ds}_to_{test_ds}{multiclass_suffix}"
                 )
 
             train_cmd = _build_train_command(
@@ -203,7 +260,6 @@ def main() -> None:
                 "test_dataset": test_ds,
                 "output_dir": str(train_output_dir) if train_output_dir else None,
                 "train_ok": train_ok,
-                "profile": args.profile,
                 "models": args.models or ("all" if args.one_click else None),
                 "cross_dataset_enhancements": bool(args.cross_dataset_enhancements),
                 "label_mode": getattr(args, "label_mode", "binary"),
