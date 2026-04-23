@@ -17,12 +17,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
-from torch.utils.data import DataLoader
 
 from nids.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    import torch
+    from torch.utils.data import DataLoader
 
 logger = get_logger("calibration")
 
@@ -141,9 +144,9 @@ class PlattCalibrator:
 
 
 def collect_logits(
-    model: torch.nn.Module,
-    data_loader: DataLoader,
-    device: torch.device,
+    model: "torch.nn.Module",
+    data_loader: "DataLoader",
+    device: "torch.device",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Collect raw logits and labels from a data loader.
 
@@ -155,6 +158,8 @@ def collect_logits(
     Returns:
         Tuple of (logits, labels) as numpy arrays.
     """
+    import torch  # local import: PlattCalibrator itself is torch-free
+
     model.eval()
     all_logits: list[np.ndarray] = []
     all_labels: list[np.ndarray] = []
