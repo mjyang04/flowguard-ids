@@ -1,7 +1,15 @@
-"""Data loading for Lycos2017 (CLAN reproduction).
+"""Data loading for Lycos2017 (CLAN reproduction)."""
 
-Populated in a follow-up session with a ``Lycos2017Dataset`` and DataLoader
-factory. Kept empty for now so that ``nids`` imports cleanly.
-"""
+from .lycos import DataSplits, get_data
+from .utils import sample_data
 
-__all__: list[str] = []
+__all__ = ["DataSplits", "get_data", "sample_data"]
+
+try:
+    from .loaders import tabular_dl
+except ModuleNotFoundError as exc:
+    if exc.name != "torch":
+        raise
+    tabular_dl = None  # type: ignore[assignment]
+else:
+    __all__.append("tabular_dl")

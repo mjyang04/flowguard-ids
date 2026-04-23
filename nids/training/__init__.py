@@ -1,10 +1,38 @@
-"""Training loop + SSL loss implementations.
+"""Training-time utilities: losses, augmentations, distances, schedules,
+meters, and checkpoint helpers.
 
-Populated in a follow-up session with:
-- ``CLANLoss`` (the CLAN novel contribution)
-- Re-implementations of SimCLR / Barlow Twins / BYOL / VICReg / SimSiam /
-  ConFlow / SSCL-IDS losses for head-to-head comparison
-- A generic ``Trainer`` orchestrating pretrain + fine-tune phases.
+Implementations ported from the upstream CLAN repo
+(https://github.com/jackwilkie/CLAN, Apache-2.0) with light cleanups.
 """
 
-__all__: list[str] = []
+from . import distance
+from .augmentations import (
+    FeatureShuffle,
+    GaussianResample,
+    Jitter,
+    UniformResample,
+    ZeroOutNoise,
+    make_augmentation,
+)
+from .checkpoint import load_checkpoint, make_checkpoint
+from .losses import CLANLoss, clan_loss
+from .meter import AverageMeter
+from .schedules import LRSchedule, Schedule, WarmupCosineSchedule
+
+__all__ = [
+    "distance",
+    "CLANLoss",
+    "clan_loss",
+    "Jitter",
+    "ZeroOutNoise",
+    "GaussianResample",
+    "UniformResample",
+    "FeatureShuffle",
+    "make_augmentation",
+    "AverageMeter",
+    "Schedule",
+    "WarmupCosineSchedule",
+    "LRSchedule",
+    "make_checkpoint",
+    "load_checkpoint",
+]

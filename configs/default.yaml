@@ -1,66 +1,94 @@
 # CLAN reproduction on Lycos2017 — every tunable knob lives here.
 # Paper: Wilkie et al., "CLAN: Contrastive Self-Supervised NIDS Using Augmented Negative Pairs", IEEE CSR 2025.
 # Reference repo: https://github.com/jackwilkie/CLAN
+#
+# Defaults mirror CLAN's train_clan.py / eval_clan.py / finetune_clan.py argparse defaults.
 
 data:
   data_dir: data/raw
   processed_dir: data/processed
   dataset: lycos2017
   csv_path: data/raw/lycos.csv
-  batch_size: 256
+  target_col: label
+  drop_cols:
+    - flow_id
+    - src_addr
+    - src_port
+    - dst_addr
+    - dst_port
+    - ip_prot
+    - timestamp
+  benign_label: benign
+  # Attack classes with fewer than `sample_threshold` samples are held out as
+  # zero-day evaluation set (used by eval_clan but not train_clan).
+  sample_threshold: 100
+  test_ratio: 0.5
+  val_ratio: 0.0
+  split_seed: 39058032
+  batch_size: 8192
   num_workers: 0
-  train_ratio: 0.8
-  val_ratio: 0.1
-  scaler_type: minmax
-  benign_label: BENIGN
-  random_state: 42
+  balanced_sampling: true
 
 model:
-  # CLDNN encoder — CLAN paper default.
-  name: cldnn
-  input_dim: 78
-  embedding_dim: 128
-  conv_channels: [64, 128]
-  conv_kernel_sizes: [3, 3]
-  lstm_hidden_size: 128
-  lstm_num_layers: 1
-  bidirectional: true
-  dropout: 0.2
-  l2_normalize: true
+  # ContrastiveMLP — the actual CLAN encoder (the "CLDNN" in the paper's
+  # comparison table is a baseline, not CLAN's own encoder).
+  name: contrastive_mlp
+  input_dim: 72          # Lycos2017 has 79 cols; 7 meta cols are dropped
+  neurons: [1024, 1024, 1024, 1024]
+  embedding_dim: 64
+  n_classes: 12
+  dropout: 0.0
+  residual: true
+  project_to_sphere: false  # CLANLoss does the L2-normalisation internally
 
 loss:
-  # Primary contribution of CLAN: augmented samples act as hard negatives.
-  # Swap to one of {simclr, barlow_twins, byol, vicreg, simsiam, conflow, sscl_ids}
-  # to run a head-to-head SSL baseline comparison.
+  # CLAN is the primary method. Swap to one of the seven baselines to run
+  # the head-to-head SSL comparison:
+  # {simclr, barlow_twins, byol, vicreg, simsiam, conflow, sscl_ids}.
   name: clan
-  margin: 1.0
-  temperature: 0.5
+  margin: 0.5
+  loss_alpha: 0.5
+  squared: false
+  distance_metric: cosine
+  eps: 1.0e-6
 
 augmentation:
-  # Strategy used to generate "negative" views of benign flows.
-  name: gaussian_noise
-  noise_std: 0.1
-  feature_dropout_prob: 0.1
+  # "Uniform resample": replace a random fraction of features with samples
+  # from a uniform distribution. CLAN paper uses this as the negative-view
+  # generator during pretraining.
+  name: uniform_resample
+  max_val: 1.7
+  mean: 0.0
+  variance: 1.0
+  p_sample: 1.0
+  p_feature: 0.1
 
 training:
-  num_epochs: 50
-  learning_rate: 0.001
-  weight_decay: 0.0001
+  # Pretrain defaults from train_clan.py.
+  num_epochs: 200
+  learning_rate: 1.0e-4
+  weight_decay: 0.0
   optimizer: adamw
-  use_scheduler: true
-  scheduler: cosine
-  use_early_stopping: true
-  early_stopping_patience: 10
-  gradient_clip: 1.0
-  amp: true
-  eval_metric: roc_auc
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  warmup_ratio: 0.1        # warmup 10% of total steps
+  lr_start: 1.0e-6
+  lr_end: 1.0e-6
+  gradient_clip: 0.0
+  amp: false
+  print_freq: 10
+  checkpoint_path: weights/clan.pt.tar
 
 finetune:
-  # Few-shot multiclass fine-tune sweep (per-class sample counts).
-  shots_per_class: [8, 16, 32, 64, 128, 256, 512, 1024]
-  num_epochs: 20
-  learning_rate: 0.001
-  head_hidden_dim: 64
+  # Few-shot fine-tune defaults from finetune_clan.py.
+  samples_per_class: [8, 16, 32, 64, 128, 256, 512, 1024]
+  num_epochs: 100
+  learning_rate: 1.0e-3
+  weight_decay: 1.0e-6
+  batch_size: 64
+  label_smoothing: 0.0
+  finetune_dropout: 0.0
+  checkpoint_path: weights/clan_finetuned.pt.tar
 
 runtime:
   output_dir: artifacts

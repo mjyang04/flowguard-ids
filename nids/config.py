@@ -1,7 +1,14 @@
 """Experiment configuration for CLAN reproduction on Lycos2017.
 
-Minimal, immutable dataclasses loaded from YAML. Every tunable hyperparameter
-lives in ``configs/default.yaml``; never hardcode them in Python.
+Mirrors the hyperparameters used in the upstream CLAN repo
+(https://github.com/jackwilkie/CLAN) for ``train_clan.py`` /
+``eval_clan.py`` / ``finetune_clan.py``. Encoder is a **ContrastiveMLP**
+(4-layer residual MLP), not a CLDNN — the paper's abstract is slightly
+misleading: the CLDNN in the comparison table is a *baseline*, whereas
+CLAN itself uses an MLP.
+
+Every tunable value lives in ``configs/default.yaml``; never hardcode
+hyperparameters in Python.
 """
 
 from __future__ import annotations
@@ -19,72 +26,99 @@ class DataConfig:
     processed_dir: str = "data/processed"
     dataset: str = "lycos2017"
     csv_path: str = "data/raw/lycos.csv"
-    batch_size: int = 256
+    target_col: str = "label"
+    drop_cols: tuple[str, ...] = (
+        "flow_id",
+        "src_addr",
+        "src_port",
+        "dst_addr",
+        "dst_port",
+        "ip_prot",
+        "timestamp",
+    )
+    benign_label: str = "benign"
+    sample_threshold: int = 100  # attacks with < threshold samples become zero-day held-out
+    test_ratio: float = 0.5
+    val_ratio: float = 0.0
+    split_seed: int = 39058032
+    batch_size: int = 8192
     num_workers: int = 0
-    train_ratio: float = 0.8
-    val_ratio: float = 0.1
-    scaler_type: str = "minmax"
-    benign_label: str = "BENIGN"
-    random_state: int = 42
+    balanced_sampling: bool = True
 
 
 @dataclass(frozen=True)
 class ModelConfig:
-    """CLDNN encoder hyperparameters (CLAN default)."""
+    """ContrastiveMLP — the encoder used by CLAN."""
 
-    name: str = "cldnn"
-    input_dim: int = 78
-    embedding_dim: int = 128
-    conv_channels: tuple[int, ...] = (64, 128)
-    conv_kernel_sizes: tuple[int, ...] = (3, 3)
-    lstm_hidden_size: int = 128
-    lstm_num_layers: int = 1
-    bidirectional: bool = True
-    dropout: float = 0.2
-    l2_normalize: bool = True
+    name: str = "contrastive_mlp"
+    input_dim: int = 72  # Lycos2017 after dropping 7 meta columns
+    neurons: tuple[int, ...] = (1024, 1024, 1024, 1024)
+    embedding_dim: int = 64
+    n_classes: int = 12  # for fine-tune probe head
+    dropout: float = 0.0
+    residual: bool = True
+    project_to_sphere: bool = False  # CLANLoss normalises internally
 
 
 @dataclass(frozen=True)
 class LossConfig:
-    """Loss configuration. ``name`` selects which SSL loss drives training."""
+    """Loss configuration. ``name`` selects which SSL loss drives training.
+
+    CLAN is the primary method; the other values are baselines for
+    comparison.
+    """
 
     name: str = "clan"  # clan | simclr | barlow_twins | byol | vicreg | simsiam | conflow | sscl_ids
-    margin: float = 1.0
-    temperature: float = 0.5
+    margin: float = 0.5
+    loss_alpha: float = 0.5  # weight on intra-class term vs inter-class term
+    squared: bool = False
+    distance_metric: str = "cosine"  # cosine | euclidean
+    eps: float = 1e-6
 
 
 @dataclass(frozen=True)
 class AugmentationConfig:
-    """Augmentation strategy used to produce negative samples in CLAN."""
+    """Augmentation strategy for negative-view generation (CLAN default)."""
 
-    name: str = "gaussian_noise"
-    noise_std: float = 0.1
-    feature_dropout_prob: float = 0.1
+    name: str = "uniform_resample"  # uniform_resample | jitter | zero_out | feature_shuffle
+    max_val: float = 1.7
+    mean: float = 0.0
+    variance: float = 1.0
+    p_sample: float = 1.0
+    p_feature: float = 0.1
 
 
 @dataclass(frozen=True)
 class TrainingConfig:
-    num_epochs: int = 50
-    learning_rate: float = 1e-3
-    weight_decay: float = 1e-4
+    """Pretrain hyperparameters — mirrors CLAN train_clan.py defaults."""
+
+    num_epochs: int = 200
+    learning_rate: float = 1e-4
+    weight_decay: float = 0.0
     optimizer: str = "adamw"
-    use_scheduler: bool = True
-    scheduler: str = "cosine"
-    use_early_stopping: bool = True
-    early_stopping_patience: int = 10
-    gradient_clip: float = 1.0
-    amp: bool = True
-    eval_metric: str = "roc_auc"
+    adam_beta1: float = 0.9
+    adam_beta2: float = 0.999
+    warmup_ratio: float = 0.1
+    lr_start: float = 1e-6
+    lr_end: float = 1e-6
+    gradient_clip: float = 0.0  # CLAN does not clip
+    amp: bool = False
+    print_freq: int = 10
+    checkpoint_path: str = "weights/clan.pt.tar"
 
 
 @dataclass(frozen=True)
 class FinetuneConfig:
-    """Few-shot fine-tune on labelled samples for multiclass evaluation."""
+    """Few-shot fine-tune hyperparameters — mirrors CLAN finetune_clan.py."""
 
-    shots_per_class: tuple[int, ...] = (8, 16, 32, 64, 128, 256, 512, 1024)
-    num_epochs: int = 20
+    samples_per_class: tuple[int, ...] = (8, 16, 32, 64, 128, 256, 512, 1024)
+    num_epochs: int = 100
     learning_rate: float = 1e-3
-    head_hidden_dim: int = 64
+    weight_decay: float = 1e-6
+    batch_size: int = 64
+    label_smoothing: float = 0.0
+    finetune_dropout: float = 0.0
+    checkpoint_path: str = "weights/clan_finetuned.pt.tar"
 
 
 @dataclass(frozen=True)
@@ -112,9 +146,9 @@ def _from_dict(cls: type[Any], data: dict[str, Any]) -> Any:
         if name not in data:
             continue
         value = data[name]
-        field_type = field_def.type
-        if hasattr(field_type, "__dataclass_fields__") and isinstance(value, dict):
-            kwargs[name] = _from_dict(field_type, value)
+        annotation = field_def.type
+        if hasattr(annotation, "__dataclass_fields__") and isinstance(value, dict):
+            kwargs[name] = _from_dict(annotation, value)
         elif isinstance(value, list) and _is_tuple_field(field_def):
             kwargs[name] = tuple(value)
         else:
