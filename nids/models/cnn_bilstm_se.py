@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import List
-
 import torch
 import torch.nn as nn
 
@@ -76,9 +74,9 @@ class CNNBiLSTMSE(BaseNIDSModel):
         self,
         input_dim: int,
         num_classes: int,
-        conv_channels: List[int],
-        conv_kernel_sizes: List[int] | None = None,
-        conv_pool_sizes: List[int] | None = None,
+        conv_channels: list[int],
+        conv_kernel_sizes: list[int] | None = None,
+        conv_pool_sizes: list[int] | None = None,
         lstm_hidden_size: int = 128,
         lstm_num_layers: int = 2,
         dropout: float = 0.3,

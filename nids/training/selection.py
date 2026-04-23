@@ -6,8 +6,6 @@ predictions/labels collected during evaluation.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 
@@ -29,7 +27,7 @@ def compute_selection_metric(
     *,
     y_true: np.ndarray,
     y_pred: np.ndarray,
-    y_score: Optional[np.ndarray],
+    y_score: np.ndarray | None,
     num_classes: int,
 ) -> float:
     """Return the scalar value of ``name`` for the given predictions.

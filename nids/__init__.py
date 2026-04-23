@@ -1,4 +1,4 @@
-"""Lightweight CNN-BiLSTM-SE NIDS package."""
+"""Lightweight NIDS package: CNN-BiLSTM-SE + Transformer variants + two-stage cascade + SHAP-driven Top-K + Platt calibration."""
 
 from .config import ExperimentConfig, load_config
 

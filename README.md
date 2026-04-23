@@ -1,19 +1,23 @@
 # FlowGuard IDS
 
 Lightweight IDS research project for graduation design:
-**CNN-BiLSTM-SE + SHAP explainability + cross-dataset generalization (CICIDS2017 / UNSW-NB15)**.
+**CNN-BiLSTM-SE + SHAP explainability + two-stage cascade (binary gate → multiclass refinement)** on CICIDS2017 / UNSW-NB15. Cross-dataset generalization is retained as a secondary comparison track.
 
 ## Highlights
 
 - Unified preprocessing pipeline for CICIDS2017 and UNSW-NB15 (55-dim shared feature space)
-- 6 supported models:
+- 8 supported models:
   - `cnn_bilstm` — baseline deep model
-  - `cnn_bilstm_se` — main model with Squeeze-Excitation attention
-  - `cnn_bilstm_se_topk` — `cnn_bilstm_se` architecture trained on SHAP-reduced Top-K features
+  - `cnn_bilstm_se` — CNN-BiLSTM with Squeeze-Excitation attention
+  - `cnn_bilstm_se_transformer` — three-scale fusion (CNN + BiLSTM + lightweight Transformer encoder); primary model for the main thesis result
+  - `cnn_bilstm_se_topk` — `cnn_bilstm_se` trained on SHAP-reduced Top-K features
   - `cnn_bilstm_at` — Najar et al. lightweight CNN-BiLSTM-AT baseline
+  - `ft_transformer` — FT-Transformer tabular baseline (Gorishniy et al. 2021)
   - `random_forest` — lightweight classical model
   - `xgboost` — lightweight classical model
 - `cnn_bilstm_attention` is kept in code but excluded from current training commands
+- **Two-stage XI2S-style cascade**: binary Stage-1 gate + multiclass Stage-2 refinement; automated via `scripts/run_two_stage_pipeline.py` and evaluated by `scripts/eval_two_stage.py` with `nids.evaluation.two_stage` (pure-numpy, unit-tested)
+- Multiclass artifacts are isolated under `artifacts/<dir>_multiclass/` so binary and multiclass runs for the same direction never collide
 - Imbalance-aware evaluation metrics designed for IDS: `recall_at_far_1pct`, `recall_at_far_5pct`, `best_f1`, `pr_auc`, `roc_auc` (see [Evaluation Metrics](#evaluation-metrics))
 - One-click training and one-click experiments
 - Skip trained models by default in one-click mode, with `--force` for full retrain
@@ -84,7 +88,9 @@ flowguard-ids/
 |   |-- preprocess_cross_dataset.py       # Cross-dataset preprocessing
 |   |-- train.py                          # Train one model / all models / one-click
 |   |-- train_lightweight.py              # Retrain lightweight final model from Top-K features
-|   |-- run_experiments.py                # Batch experiment runner (same + cross)
+|   |-- run_experiments.py                # Batch experiment runner (same + cross, binary | multiclass)
+|   |-- eval_two_stage.py                 # Two-stage cascade evaluator (binary gate -> multiclass refinement)
+|   |-- run_two_stage_pipeline.py         # End-to-end cascade pipeline (train both stages + eval + summary)
 |   |-- evaluate.py                       # Evaluate saved model on test artifact
 |   |-- shap_analysis.py                  # SHAP explainability workflow
 |   |-- feature_selection.py              # Top-K/cumulative feature selection
@@ -198,16 +204,29 @@ Force full retraining for all experiment groups:
 python scripts/run_experiments.py --config configs/default.yaml --one-click --force
 ```
 
-### 2.1) RTX 3060 laptop preset (keep default training hyperparameters)
+### 2.1) Two-stage cascade pipeline (primary thesis track)
 
-This preset keeps the baseline config from `configs/default.yaml` intact, including `batch_size: 512`, but reduces total work by:
+The XI2S-style cascade uses a binary Stage-1 gate and a multiclass Stage-2 refiner on the same backbone. Artifacts from binary and multiclass runs are stored separately (`artifacts/<dir>/<model>/` for Stage-1 and `artifacts/<dir>_multiclass/<model>/` for Stage-2), so they never overwrite each other.
 
-- running same-dataset (`cicids2017 -> cicids2017`) and cross-dataset (`cicids2017 -> unsw_nb15`) experiments
-- selecting `cnn_bilstm_se`, `random_forest`, and `xgboost`
-- keeping one-click conveniences such as auto preprocess, skip existing results, and resume
+All pipeline knobs (models, seeds, directions, thresholds, do_train, force, cross_dataset_enhancements) live under `pipeline:` in `configs/default.yaml`. The headline command takes no other flags:
 
 ```bash
-python scripts/run_experiments.py --config configs/default.yaml --profile laptop_3060 --one-click
+# Reads pipeline.models / pipeline.seeds / pipeline.directions / pipeline.do_train
+# from configs/default.yaml. Trains both stages if pipeline.do_train is true,
+# then evaluates every (direction, model, seed) triple.
+python scripts/run_two_stage_pipeline.py --config configs/default.yaml
+```
+
+If binary + multiclass artifacts already exist, set `pipeline.do_train: false` in the YAML (or pass `--no-do-train`) to only rerun cascade evaluation. Results are aggregated to `artifacts/two_stage_summary.json`.
+
+Manually evaluate a single (direction, model) pair:
+
+```bash
+python scripts/eval_two_stage.py \
+  --stage1-run artifacts/seed42/cicids2017_to_cicids2017/cnn_bilstm_se \
+  --stage2-run artifacts/seed42/cicids2017_to_cicids2017_multiclass/cnn_bilstm_se \
+  --data-file data/processed/cicids2017/data_multiclass.npz \
+  --output-dir artifacts/seed42/cicids2017_to_cicids2017_multiclass/two_stage/cnn_bilstm_se
 ```
 
 ### 3) Final lightweight model (your deliverable model)

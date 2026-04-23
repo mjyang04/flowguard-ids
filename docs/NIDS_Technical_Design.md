@@ -1639,8 +1639,9 @@ python scripts/train.py --config configs/default.yaml --one-click
 # 训练（跨数据集：自动启用 AUC+Platt+LS 增强）
 python scripts/train.py --config configs/default.yaml --train-dataset cicids2017 --test-dataset unsw_nb15 --one-click --cross-dataset-enhancements
 
-# 批量实验（run_experiments.py 会在跨数据集方向自动加 --cross-dataset-enhancements）
-python scripts/run_experiments.py --config configs/default.yaml --profile laptop_3060 --one-click
+# 批量实验（从 configs/default.yaml 的 pipeline: 段读取 models/seeds/directions；
+# 跨数据集方向会自动加 --cross-dataset-enhancements）
+python scripts/run_experiments.py --config configs/default.yaml
 
 # SHAP分析
 python scripts/shap_analysis.py --model artifacts/best_model.pt

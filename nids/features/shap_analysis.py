@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-from typing import List
 
 import numpy as np
 import torch
@@ -139,7 +138,7 @@ class SHAPAnalyzer:
         return compute_feature_importance(shap_values)
 
     def select_top_k(
-        self, importance: np.ndarray, feature_names: List[str], k: int = 30
-    ) -> List[str]:
+        self, importance: np.ndarray, feature_names: list[str], k: int = 30
+    ) -> list[str]:
         selected_features, _, _ = select_top_k_features(feature_names, importance, k=k)
         return selected_features
