@@ -177,16 +177,23 @@ Force full retraining:
 python scripts/train.py --config configs/default.yaml --cross-dataset --train-dataset cicids2017 --test-dataset unsw_nb15 --one-click --force
 ```
 
-### 2) One-click experiments (2 dataset settings x all models)
+### 2) One-click experiments (binary matrix)
 
-Runs:
-- `cicids2017 -> cicids2017` (same-dataset baseline)
-- `cicids2017 -> unsw_nb15` (cross-dataset generalization)
-
-Each setting trains all supported models and skips existing results by default:
+Runs the directions listed in `pipeline.directions` of `configs/default.yaml`
+(default: `cicids2017 -> cicids2017` and `unsw_nb15 -> unsw_nb15`). Each
+direction trains every model in `pipeline.models` (default: 4 backbones) and
+skips existing results by default:
 
 ```bash
-python scripts/run_experiments.py --config configs/default.yaml --one-click
+python scripts/run_experiments.py --config configs/default.yaml
+```
+
+Temporarily override via CLI without touching YAML:
+
+```bash
+python scripts/run_experiments.py --config configs/default.yaml \
+  --directions cicids2017:cicids2017,cicids2017:unsw_nb15 \
+  --models cnn_bilstm_se_transformer --seeds 42
 ```
 
 `run_experiments.py` now reuses the same canonical training layout as `scripts/train.py`:

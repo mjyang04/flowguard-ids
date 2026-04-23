@@ -4,7 +4,7 @@ from setuptools import find_packages, setup
 setup(
     name="flowguard-ids",
     version="0.1.0",
-    description="Lightweight CNN-BiLSTM-SE IDS with explainability and cross-dataset generalization",
+    description="Lightweight two-stage NIDS: CNN-BiLSTM-SE-Transformer backbone + XI2S cascade + SHAP Top-K on CICIDS2017 / UNSW-NB15",
     packages=find_packages(),
     python_requires=">=3.10",
     install_requires=[

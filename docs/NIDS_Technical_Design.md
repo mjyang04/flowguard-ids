@@ -1,10 +1,11 @@
-# Lightweight CNN-BiLSTM-SE IDS with Explainability and Cross-Dataset Generalization）
+# Lightweight Two-Stage NIDS (CNN-BiLSTM-SE-Transformer + XI2S Cascade + SHAP Top-K)
 ## 技术设计文档与实施计划
 
-**文档版本**: v1.0
-**创建日期**: 2026-03-18
-**项目**: Lightweight CNN-BiLSTM-SE IDS with Explainability and Cross-Dataset Generalization
-**目标读者**: Codex
+**文档版本**: v2.0
+**创建日期**: 2026-03-18(v1)、2026-04-23 修订(v2 切到两阶段级联方向)
+**项目**: Lightweight Two-Stage IDS with CNN-BiLSTM-SE-Transformer Backbone + XI2S Cascade Inference + SHAP-driven Top-K Feature Selection on CICIDS2017 / UNSW-NB15
+**目标读者**: Codex / 论文答辩评委
+**方向备注**: v2 起,同数据集 binary + multiclass 是主叙事(XI2S 级联);跨数据集泛化降级为 secondary comparison。
 
 ---
 
@@ -22,6 +23,27 @@
 10. [开发优先级与实施步骤](#10-开发优先级与实施步骤)
 11. [RTX3060优化策略](#11-rtx3060优化策略)
 12. [潜在风险与解决方案](#12-潜在风险与解决方案)
+
+---
+
+## v2 方向变更说明(2026-04-23)
+
+本文档 v1 的主叙事是"跨数据集泛化",v2 起项目切换到 **XI2S 两阶段级联 + CNN-BiLSTM-SE-Transformer 三尺度 backbone + SHAP Top-K 精选特征**,同数据集 binary + multiclass 是主实验;跨数据集留作 secondary comparison。
+
+哪些章节**仍然有效(v2 继续沿用)**:
+- §2 数据处理流程(55 维 NetFlow 特征对齐、数据清洗、归一化编码)
+- §3 模型设计中的 CNN-BiLSTM-SE 基线部分(新 backbone 复用其 ConvBlock / SE / AttentionPooling)
+- §4 SHAP 特征选择流程(Top-K 精选仍是论文 C3 贡献点)
+- §5 训练流程设计(imbalance-aware loss + Platt scaling 均保留)
+- §7 评估指标体系(binary 指标继续用;multiclass 新增 macro-F1 / weighted-F1 / per-class F1)
+- §8/§11/§12
+
+哪些章节**被 v2 的新设计取代**(以 `docs/thesis_v2.md` 为准):
+- §1 系统总体架构的 ASCII 图 — 新架构另加 Transformer encoder + 两阶段级联推理,见 `docs/thesis_v2.md` §3.4.7 和 §3.9
+- §6 Cross-dataset 实验设计 — v2 降级为 secondary comparison,主实验矩阵改为同数据集 binary + multiclass,见 `docs/thesis_v2.md` §4.2.6 / §4.2.7 / §4.2.8
+- 论文的四个贡献 C1~C4(级联实现 / 三尺度 backbone / SHAP Top-K 工作流 / 配置驱动工程层)也仅在 thesis_v2 里叙述
+
+权威来源优先级:**thesis_v2.md > CLAUDE.md > 本文档的 v1 内容**。本文档保留 v1 的技术细节作为参考(数据对齐、SHAP 流程、训练 recipe 这些在 v2 仍然沿用)。
 
 ---
 
