@@ -25,7 +25,7 @@ data:
   test_ratio: 0.5
   val_ratio: 0.0
   split_seed: 39058032
-  batch_size: 8192
+  batch_size: 2048          # lowered from upstream 8192 for RTX 3060 6GB VRAM
   num_workers: 0
   balanced_sampling: true
 
@@ -75,7 +75,7 @@ training:
   lr_start: 1.0e-6
   lr_end: 1.0e-6
   gradient_clip: 0.0
-  amp: false
+  amp: true                 # fp16 mixed precision — required on 6GB VRAM
   print_freq: 10
   checkpoint_path: weights/clan.pt.tar
 

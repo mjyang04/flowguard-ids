@@ -1,11 +1,21 @@
-"""Pretrain a CLAN-style self-supervised encoder on Lycos2017.
+"""Pretrain a CLAN-style self-supervised encoder.
 
 Usage:
-    python scripts/train.py --config configs/default.yaml [--device cuda]
+    python scripts/train.py --config configs/lycos.yaml  [--device cuda]
+    python scripts/train.py --config configs/cicids.yaml [--device cuda]
 
 Port of https://github.com/jackwilkie/CLAN/blob/main/train_clan.py
-(Apache-2.0). The argparse layer has been replaced with our YAML config;
-everything tunable is in ``configs/default.yaml``.
+(Apache-2.0) with four additions for the Lycos2017 vs CICIDS2017 study:
+
+1. Dataset dispatch via ``cfg.data.dataset`` (``lycos2017`` | ``cicids2017``).
+2. Runtime ``input_dim`` inferred from the loaded splits (the upstream
+   ``d_in=72`` hard-code fails on CICIDS2017 because the raw CIC feature
+   set has a different zero-column footprint).
+3. Automatic mixed precision (``autocast`` + ``GradScaler``) gated by
+   ``cfg.training.amp`` — essential for RTX 3060 6 GB to fit
+   ``batch_size=2048`` with the 4×1024 MLP.
+4. Run directory layout ``artifacts/<dataset>/<loss>/seed<S>/`` so that
+   downstream scripts can locate each run without scanning.
 """
 
 from __future__ import annotations
@@ -20,8 +30,8 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from nids.config import ExperimentConfig, RuntimeConfig, load_config, save_config  # noqa: E402
-from nids.data import get_data, tabular_dl  # noqa: E402
+from nids.config import ExperimentConfig, load_config, save_config  # noqa: E402
+from nids.data import get_data_by_name, tabular_dl  # noqa: E402
 from nids.models import create_model  # noqa: E402
 from nids.training import (  # noqa: E402
     AverageMeter,
@@ -43,36 +53,52 @@ def resolve_device(preference: str) -> torch.device:
 
 
 def train_one_epoch(
-    loader, model, augmentation, criterion, optimizer, scheduler, epoch, cfg, device
+    loader, model, augmentation, criterion, optimizer, scheduler,
+    epoch, cfg, device, scaler,
 ):
     model.train()
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
     frac_pos_meter = AverageMeter()
+    use_amp = scaler is not None
 
     start = time.time()
     for i, (x, _) in enumerate(loader):
         data_time.update(time.time() - start)
 
-        x = x.to(device)
+        x = x.to(device, non_blocking=True)
         x_aug = augmentation(x)
         bsz = x.size(0)
 
-        x_cat = torch.cat([x, x_aug], dim=0)
-        z_cat = model(x_cat)
-        z, z_aug = torch.split(z_cat, [x.size(0), x_aug.size(0)], dim=0)
+        optimizer.zero_grad(set_to_none=True)
 
-        loss, frac_pos = criterion(z, z_aug)
+        if use_amp:
+            with torch.cuda.amp.autocast():
+                x_cat = torch.cat([x, x_aug], dim=0)
+                z_cat = model(x_cat)
+                z, z_aug = torch.split(z_cat, [x.size(0), x_aug.size(0)], dim=0)
+                loss, frac_pos = criterion(z, z_aug)
+            scaler.scale(loss).backward()
+            if cfg.training.gradient_clip > 0:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.training.gradient_clip)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            x_cat = torch.cat([x, x_aug], dim=0)
+            z_cat = model(x_cat)
+            z, z_aug = torch.split(z_cat, [x.size(0), x_aug.size(0)], dim=0)
+            loss, frac_pos = criterion(z, z_aug)
+            loss.backward()
+            if cfg.training.gradient_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.training.gradient_clip)
+            optimizer.step()
+
+        scheduler.step()
+
         losses.update(loss.item(), bsz)
         frac_pos_meter.update(frac_pos.item())
-
-        optimizer.zero_grad()
-        loss.backward()
-        if cfg.training.gradient_clip > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.training.gradient_clip)
-        optimizer.step()
-        scheduler.step()
 
         batch_time.update(time.time() - start)
         start = time.time()
@@ -90,18 +116,22 @@ def train_one_epoch(
 def main() -> None:
     parser = argparse.ArgumentParser("CLAN pretraining")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
-    parser.add_argument("--device", type=str, default=None, help="override cfg.runtime.device")
+    parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=None, help="override cfg.runtime.seed")
     args = parser.parse_args()
 
     cfg: ExperimentConfig = load_config(args.config)
     if args.device:
         cfg = replace(cfg, runtime=replace(cfg.runtime, device=args.device))
+    if args.seed is not None:
+        cfg = replace(cfg, runtime=replace(cfg.runtime, seed=args.seed))
 
     seed_everything(cfg.runtime.seed)
     device = resolve_device(cfg.runtime.device)
-    logger.info("device=%s", device)
+    logger.info("device=%s dataset=%s seed=%d", device, cfg.data.dataset, cfg.runtime.seed)
 
-    splits = get_data(
+    splits = get_data_by_name(
+        cfg.data.dataset,
         cfg.data.csv_path,
         target=cfg.data.target_col,
         drop=cfg.data.drop_cols,
@@ -113,20 +143,21 @@ def main() -> None:
         anomaly_detection=True,
     )
     logger.info(
-        "train=%d test=%d zd=%d",
+        "train=%d test=%d zd=%d input_dim=%d classes=%d",
         splits.x_train.shape[0], splits.x_test.shape[0], splits.x_zd.shape[0],
+        splits.input_dim, len(splits.class_names),
     )
 
     train_loader = tabular_dl(
-        splits.x_train,
-        splits.y_train,
+        splits.x_train, splits.y_train,
         batch_size=cfg.data.batch_size,
         balanced=cfg.data.balanced_sampling,
         drop_last=True,
         num_workers=cfg.data.num_workers,
+        pin_memory=(device.type == "cuda"),
     )
 
-    model = create_model(cfg.model).to(device)
+    model = create_model(cfg.model, input_dim=splits.input_dim).to(device)
     augmentation = make_augmentation(cfg.augmentation).to(device)
     criterion = CLANLoss(
         m=cfg.loss.margin,
@@ -154,26 +185,38 @@ def main() -> None:
     )
     scheduler = LRSchedule(optimizer, base_schedule)
 
-    output_dir = Path(cfg.runtime.output_dir) / cfg.loss.name
-    output_dir.mkdir(parents=True, exist_ok=True)
-    save_config(cfg, output_dir / "resolved_config.yaml")
+    use_amp = bool(cfg.training.amp) and device.type == "cuda"
+    scaler = torch.cuda.amp.GradScaler() if use_amp else None
+    if use_amp:
+        logger.info("mixed precision enabled (fp16 autocast + GradScaler)")
+
+    run_dir = Path(cfg.runtime.output_dir) / cfg.data.dataset / cfg.loss.name / f"seed{cfg.runtime.seed}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    save_config(cfg, run_dir / "resolved_config.yaml")
 
     avg_loss = 0.0
     for epoch in range(1, cfg.training.num_epochs + 1):
         t0 = time.time()
         avg_loss = train_one_epoch(
             train_loader, model, augmentation, criterion, optimizer, scheduler,
-            epoch, cfg, device,
+            epoch, cfg, device, scaler,
         )
         logger.info("epoch=%d avg_loss=%.4f elapsed=%.1fs", epoch, avg_loss, time.time() - t0)
 
-    checkpoint_path = Path(cfg.training.checkpoint_path)
+    checkpoint_path = run_dir / "clan.pt.tar"
     make_checkpoint(
         model=model,
         path=checkpoint_path,
         optimizer=optimizer,
         scheduler=scheduler,
-        stats={"final_loss": float(avg_loss), "epochs": cfg.training.num_epochs},
+        scaler=scaler,
+        stats={
+            "final_loss": float(avg_loss),
+            "epochs": cfg.training.num_epochs,
+            "input_dim": splits.input_dim,
+            "dataset": cfg.data.dataset,
+            "seed": cfg.runtime.seed,
+        },
     )
     logger.info("saved checkpoint to %s", checkpoint_path)
 

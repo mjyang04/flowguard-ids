@@ -24,7 +24,9 @@ import yaml
 class DataConfig:
     data_dir: str = "data/raw"
     processed_dir: str = "data/processed"
-    dataset: str = "lycos2017"
+    dataset: str = "lycos2017"  # 'lycos2017' | 'cicids2017'
+    # Path to the dataset: a CSV file for Lycos2017 or a directory of
+    # day-split zips/CSVs for CICIDS2017.
     csv_path: str = "data/raw/lycos.csv"
     target_col: str = "label"
     drop_cols: tuple[str, ...] = (
@@ -41,7 +43,7 @@ class DataConfig:
     test_ratio: float = 0.5
     val_ratio: float = 0.0
     split_seed: int = 39058032
-    batch_size: int = 8192
+    batch_size: int = 2048  # lowered from 8192 for 6GB VRAM; raise on HPC
     num_workers: int = 0
     balanced_sampling: bool = True
 

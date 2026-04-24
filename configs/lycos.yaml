@@ -1,0 +1,84 @@
+# CLAN on Lycos2017 — reproduction target (Rosay et al., 2022).
+# Inherits from configs/default.yaml; only the dataset-specific fields are
+# listed below. All hyperparameters follow the upstream CLAN defaults
+# (Wilkie et al., IEEE CSR 2025) except batch_size which is lowered from
+# 8192 to 2048 to fit on RTX 3060 6GB with AMP enabled.
+
+data:
+  data_dir: data/raw
+  processed_dir: data/processed
+  dataset: lycos2017
+  csv_path: data/raw/lycos.csv
+  target_col: label
+  drop_cols:
+    - flow_id
+    - src_addr
+    - src_port
+    - dst_addr
+    - dst_port
+    - ip_prot
+    - timestamp
+  benign_label: benign
+  sample_threshold: 100
+  test_ratio: 0.5
+  val_ratio: 0.0
+  split_seed: 39058032
+  batch_size: 2048
+  num_workers: 0
+  balanced_sampling: true
+
+model:
+  name: contrastive_mlp
+  input_dim: 72          # advisory; actual value derived at runtime from splits.input_dim
+  neurons: [1024, 1024, 1024, 1024]
+  embedding_dim: 64
+  n_classes: 13          # Lycos2017 has 13 non-benign classes before zero-day carve-out
+  dropout: 0.0
+  residual: true
+  project_to_sphere: false
+
+loss:
+  name: clan
+  margin: 0.5
+  loss_alpha: 0.5
+  squared: false
+  distance_metric: cosine
+  eps: 1.0e-6
+
+augmentation:
+  name: uniform_resample
+  max_val: 1.7
+  mean: 0.0
+  variance: 1.0
+  p_sample: 1.0
+  p_feature: 0.1
+
+training:
+  num_epochs: 200
+  learning_rate: 1.0e-4
+  weight_decay: 0.0
+  optimizer: adamw
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  warmup_ratio: 0.1
+  lr_start: 1.0e-6
+  lr_end: 1.0e-6
+  gradient_clip: 0.0
+  amp: true
+  print_freq: 50
+  checkpoint_path: weights/clan_lycos.pt.tar
+
+finetune:
+  samples_per_class: [8, 16, 32, 64, 128, 256, 512, 1024]
+  num_epochs: 100
+  learning_rate: 1.0e-3   # paper §V-A prints 1e-6 but code default is 1e-3 (see thesis Ch.4)
+  weight_decay: 1.0e-6
+  batch_size: 64
+  label_smoothing: 0.0
+  finetune_dropout: 0.0
+  checkpoint_path: weights/clan_lycos_finetuned.pt.tar
+
+runtime:
+  output_dir: artifacts
+  seed: 42
+  device: auto

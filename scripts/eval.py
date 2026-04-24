@@ -1,8 +1,8 @@
-"""Evaluate a pretrained CLAN encoder via centroid-based anomaly scoring.
+"""Centroid-based AUROC evaluation of a pretrained CLAN encoder.
 
 Usage:
-    python scripts/eval.py --config configs/default.yaml \\
-        [--checkpoint weights/clan.pt.tar] [--device cuda]
+    python scripts/eval.py --config configs/lycos.yaml
+    python scripts/eval.py --config configs/cicids.yaml --seed 43
 
 Port of https://github.com/jackwilkie/CLAN/blob/main/eval_clan.py (Apache-2.0).
 """
@@ -21,7 +21,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from nids.config import ExperimentConfig, load_config  # noqa: E402
-from nids.data import get_data  # noqa: E402
+from nids.data import get_data_by_name  # noqa: E402
 from nids.evaluation import balanced_auroc, centroid_scores, mean_auroc  # noqa: E402
 from nids.models import create_model  # noqa: E402
 from nids.training import load_checkpoint  # noqa: E402
@@ -38,7 +38,6 @@ def resolve_device(preference: str) -> torch.device:
 
 @torch.no_grad()
 def embed_all(model, x: np.ndarray, device: torch.device, chunk_size: int = 1024) -> torch.Tensor:
-    """Run the encoder over ``x`` in chunks and return concatenated embeddings."""
     model.eval()
     x_t = torch.as_tensor(x, dtype=torch.float32)
     out: list[torch.Tensor] = []
@@ -53,6 +52,7 @@ def main() -> None:
     parser = argparse.ArgumentParser("CLAN evaluation")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
     parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--chunk-size", type=int, default=1024)
     args = parser.parse_args()
@@ -60,13 +60,18 @@ def main() -> None:
     cfg: ExperimentConfig = load_config(args.config)
     if args.device:
         cfg = replace(cfg, runtime=replace(cfg.runtime, device=args.device))
-    checkpoint_path = args.checkpoint or cfg.training.checkpoint_path
+    if args.seed is not None:
+        cfg = replace(cfg, runtime=replace(cfg.runtime, seed=args.seed))
+
+    run_dir = Path(cfg.runtime.output_dir) / cfg.data.dataset / cfg.loss.name / f"seed{cfg.runtime.seed}"
+    checkpoint_path = args.checkpoint or str(run_dir / "clan.pt.tar")
 
     seed_everything(cfg.runtime.seed)
     device = resolve_device(cfg.runtime.device)
     logger.info("device=%s checkpoint=%s", device, checkpoint_path)
 
-    splits = get_data(
+    splits = get_data_by_name(
+        cfg.data.dataset,
         cfg.data.csv_path,
         target=cfg.data.target_col,
         drop=cfg.data.drop_cols,
@@ -78,11 +83,10 @@ def main() -> None:
         anomaly_detection=True,
     )
 
-    # Merge zero-day set into the test set for the final AUROC report.
     x_test = np.concatenate([splits.x_test, splits.x_zd], axis=0)
     y_test = np.concatenate([splits.y_test, splits.y_zd], axis=0)
 
-    model = create_model(cfg.model).to(device)
+    model = create_model(cfg.model, input_dim=splits.input_dim).to(device)
     load_checkpoint(checkpoint_path, model, map_location=device)
 
     benign_features = embed_all(model, splits.x_train, device, args.chunk_size)
@@ -98,13 +102,18 @@ def main() -> None:
     }
 
     report = {
+        "dataset": cfg.data.dataset,
+        "seed": cfg.runtime.seed,
         "mean_auroc": float(overall),
         "per_class_auroc": per_class_named,
         "checkpoint": str(checkpoint_path),
+        "input_dim": int(splits.input_dim),
+        "n_train_benign": int(splits.x_train.shape[0]),
+        "n_test": int(x_test.shape[0]),
     }
 
-    output_dir = ensure_dir(Path(cfg.runtime.output_dir) / cfg.loss.name)
-    save_json(report, output_dir / "eval_report.json")
+    ensure_dir(run_dir)
+    save_json(report, run_dir / "eval_report.json")
     logger.info("eval report:\n%s", pformat(report))
 
 

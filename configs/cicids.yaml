@@ -1,0 +1,92 @@
+# CLAN on CICIDS2017 — the noisy-label control (Sharafaldin et al., 2018).
+# Uses the raw CIC-IDS2017 distribution AS-IS, without applying the
+# Engelen et al. (2021) timing-based relabel or the Rosay et al. (2022)
+# LycoSTand feature fix. The whole point of this config is to measure
+# the effect of the known label-noise and extraction errors on CLAN's
+# headline numbers.
+
+data:
+  data_dir: data/raw
+  processed_dir: data/processed
+  dataset: cicids2017
+  # Point at the directory of day-split zips. The loader accepts a single
+  # pre-merged CSV at this path too.
+  csv_path: data/raw/lycos-ids2017/cicids2017/csv_files
+  target_col: label
+  # CICIDS2017 uses " Label" (leading space) which is normalised to "label"
+  # inside the loader; these drop cols are the normalised CIC meta columns.
+  drop_cols:
+    - flow_id
+    - source_ip
+    - source_port
+    - destination_ip
+    - destination_port
+    - protocol
+    - timestamp
+  benign_label: benign
+  sample_threshold: 100
+  test_ratio: 0.5
+  val_ratio: 0.0
+  split_seed: 39058032
+  batch_size: 2048
+  num_workers: 0
+  balanced_sampling: true
+
+model:
+  name: contrastive_mlp
+  # CIC-IDS2017 has 79 flow features in the upstream CSV; the exact
+  # input_dim is derived at runtime after zero-column drop. This number
+  # is advisory only.
+  input_dim: 78
+  neurons: [1024, 1024, 1024, 1024]
+  embedding_dim: 64
+  n_classes: 14          # CICIDS2017 has 14 non-benign label values in total (noisy)
+  dropout: 0.0
+  residual: true
+  project_to_sphere: false
+
+loss:
+  name: clan
+  margin: 0.5
+  loss_alpha: 0.5
+  squared: false
+  distance_metric: cosine
+  eps: 1.0e-6
+
+augmentation:
+  name: uniform_resample
+  max_val: 1.7
+  mean: 0.0
+  variance: 1.0
+  p_sample: 1.0
+  p_feature: 0.1
+
+training:
+  num_epochs: 200
+  learning_rate: 1.0e-4
+  weight_decay: 0.0
+  optimizer: adamw
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  warmup_ratio: 0.1
+  lr_start: 1.0e-6
+  lr_end: 1.0e-6
+  gradient_clip: 0.0
+  amp: true
+  print_freq: 50
+  checkpoint_path: weights/clan_cicids.pt.tar
+
+finetune:
+  samples_per_class: [8, 16, 32, 64, 128, 256, 512, 1024]
+  num_epochs: 100
+  learning_rate: 1.0e-3
+  weight_decay: 1.0e-6
+  batch_size: 64
+  label_smoothing: 0.0
+  finetune_dropout: 0.0
+  checkpoint_path: weights/clan_cicids_finetuned.pt.tar
+
+runtime:
+  output_dir: artifacts
+  seed: 42
+  device: auto
