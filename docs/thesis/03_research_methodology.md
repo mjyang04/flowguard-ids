@@ -2,20 +2,24 @@
 
 ## 3.1 Background
 
-This chapter describes the methodology used by the present study to reproduce the Contrastive Learning using Augmented Negatives (CLAN) framework of Wilkie et al. (2025), to compare it against seven self-supervised learning (SSL) baselines, and to conduct a structured ablation of its key design choices. Section 3.2 states the notation and problem formulation. Section 3.3 specifies the encoder architecture (ContrastiveMLP). Section 3.4 derives the CLAN loss function and relates it to the alignment–uniformity framework of Wang and Isola (2020). Section 3.5 describes the augmentation family. Section 3.6 defines the centroid-based anomaly score and the few-shot fine-tune protocol. Section 3.7 summarises optimisation and inference. Section 3.8 details the dataset (Lycos2017) and the preprocessing pipeline. Section 3.9 specifies the seven baseline SSL methods. Section 3.10 fixes the evaluation protocol. Section 3.11 enumerates the six ablation axes. Section 3.12 lists implementation and reproducibility details.
+This chapter describes the methodology used by the present study to reproduce the Contrastive Learning using Augmented Negatives (CLAN) framework of Wilkie et al. (2025) on Lycos2017 (Rosay et al., 2021) and to run the same CLAN pipeline on the original CICIDS2017 release (Sharafaldin et al., 2018) as a controlled noisy-label audit. Section 3.2 fixes notation and formalises the problem. Section 3.3 specifies the encoder architecture (ContrastiveMLP). Section 3.4 derives the CLAN loss function and relates it to the alignment–uniformity framework of Wang and Isola (2020). Section 3.5 describes the augmentation family. Section 3.6 defines the centroid-based anomaly score and the few-shot fine-tune protocol. Section 3.7 summarises optimisation and inference. Section 3.8 details the two datasets and their preprocessing pipelines. Section 3.9 specifies the dual-dataset evaluation design that this thesis introduces. Section 3.10 fixes the evaluation protocol. Section 3.11 documents paper-versus-code discrepancies discovered during the port, the minimal ablations carried out within the available compute budget, and honestly declared scope reductions relative to the upstream study. Section 3.12 lists implementation and reproducibility details.
 
 ## 3.2 Notation and Problem Formulation
 
-Let $x \in \mathbb{R}^d$ denote a flow feature vector, where $d = 72$ for Lycos2017 after the seven metadata columns have been dropped (see §3.8). Let $y \in \{0, 1, \dots, C\}$ denote its label, with $y = 0$ reserved for benign traffic and $y > 0$ for one of $C$ attack classes. Given a corpus $\mathcal{D} = \{(x_i, y_i)\}_{i=1}^{N}$, the partition $\mathcal{D}_B = \{(x_i, 0) : y_i = 0\}$ contains only benign flows, and $\mathcal{D}_A = \mathcal{D} \setminus \mathcal{D}_B$ contains only attack flows.
+Let $x \in \mathbb{R}^d$ denote a flow feature vector, where $d$ is determined at runtime from the loaded dataset after the metadata columns and any all-zero columns have been dropped. For Lycos2017 (Rosay et al., 2021) the upstream CLAN convention sets $d = 72$; for the original CICIDS2017 release (Sharafaldin et al., 2018) the same preprocessing pipeline yields a slightly different value because the two datasets differ in extractor (LycoSTand versus CICFlowMeter v3) and hence in their zero-column footprint. The encoder consumes whichever $d$ the loader produces; §3.12.3 describes the runtime-dispatch mechanism.
+
+Let $y \in \{0, 1, \dots, C\}$ denote the label, with $y = 0$ reserved for benign traffic and $y > 0$ for one of $C$ attack classes. Given a corpus $\mathcal{D} = \{(x_i, y_i)\}_{i=1}^{N}$, the partition $\mathcal{D}_B = \{(x_i, 0) : y_i = 0\}$ contains only benign flows, and $\mathcal{D}_A = \mathcal{D} \setminus \mathcal{D}_B$ contains only attack flows.
 
 The present study decomposes the NIDS problem into two sub-problems:
 
 1. **Anomaly detection.** Using only $\mathcal{D}_B$ at training time, the study learns an encoder $f_\theta : \mathbb{R}^d \to \mathbb{R}^{d'}$ and a scoring function $s : \mathbb{R}^{d'} \to \mathbb{R}$ such that $s(f_\theta(x))$ is higher for attack flows than for benign flows. At deployment, $s$ is compared against a threshold.
 2. **Few-shot multiclass attack classification.** Given the pretrained $f_\theta$ and a very small labelled subset of $K$ samples per class, the study fits a lightweight classification head $g_\phi : \mathbb{R}^{d'} \to \mathbb{R}^{C+1}$ on top of $f_\theta$ and reports macro-F1 on a held-out test set.
 
+Both sub-problems are evaluated on each of the two datasets independently, using identical hyperparameters, identical encoder weights architecture, identical augmentation, and identical evaluation protocol. The difference in reported numbers therefore isolates the effect of dataset label quality from every other confound.
+
 ## 3.3 Encoder: ContrastiveMLP
 
-Wilkie et al. (2025) deliberately adopt a lightweight multi-layer perceptron rather than a deeper architecture for two reasons: (a) NIDS flow features are tabular and do not benefit from the inductive biases of convolutional or recurrent networks once the raw packets have been aggregated by CICFlowMeter, and (b) inference latency is a practical constraint in production deployments. The present study adopts their encoder unchanged (see `nids/models/contrastive_mlp.py`), which is a four-layer residual MLP with ReLU activations and an optional linear projection head.
+Wilkie et al. (2025) deliberately adopt a lightweight multi-layer perceptron rather than a deeper architecture for two reasons: (a) NIDS flow features are tabular and do not benefit from the inductive biases of convolutional or recurrent networks once the raw packets have been aggregated by the upstream extractor, and (b) inference latency is a practical constraint in production deployments. The present study adopts their encoder unchanged (see `nids/models/contrastive_mlp.py`), which is a four-layer residual MLP with ReLU activations and a linear projection head.
 
 Let $h_0 = x$ and let $h_\ell = \mathrm{DenseBlock}_\ell(h_{\ell-1})$ for $\ell \in \{1, 2, 3, 4\}$, where
 
@@ -23,7 +27,9 @@ $$
 \mathrm{DenseBlock}_\ell(h) = \underbrace{\sigma\bigl(W_\ell h + b_\ell\bigr)}_{\text{linear + ReLU}} + \underbrace{R_\ell(h)}_{\text{residual}}.
 $$
 
-Here $R_\ell$ is the identity when the input and output dimensions match and a linear resizing otherwise, following the residual design of He et al. (2016). Stacking four DenseBlocks with hidden width 1024 yields the CLAN encoder. A projection head $P : \mathbb{R}^{1024} \to \mathbb{R}^{64}$ then produces the embedding $f_\theta(x) = P(h_4)$. Design alternatives explored in the ablation (§3.11) include encoder depth $\in \{2, 3, 4, 6\}$ and the presence or absence of an explicit L2 normalisation step at the output of $P$.
+Here $R_\ell$ is the identity when the input and output dimensions match and a linear resizing otherwise, following the residual design of He et al. (2016). Stacking four DenseBlocks with hidden width 1024 yields the CLAN encoder. A projection head $P : \mathbb{R}^{1024} \to \mathbb{R}^{64}$ then produces the embedding $f_\theta(x) = P(h_4)$.
+
+The input dimension $d$ is passed into `create_model(cfg, input_dim=splits.input_dim)` at runtime; the configuration file's `model.input_dim` field is treated only as an advisory value with an explicit logger warning emitted when the two disagree. This is the minimum hardening needed to make the encoder portable across datasets without silent shape-mismatch failures.
 
 ## 3.4 Objective: CLAN Loss
 
@@ -69,7 +75,7 @@ The augmented view $x_i^{aug}$ is produced by one of five stateless functions, s
 - **ZeroOutNoise.** Masked positions are set to zero.
 - **FeatureShuffle.** Each masked position $k$ is filled with the value from a permuted feature $\pi(k)$.
 
-All augmentations execute under `torch.no_grad()` to prevent gradient leakage. Upstream CLAN uses UniformResample with $p_f = 0.1$, $p_s = 1.0$, $m_v = 1.7$, $\mu_v = 0.0$; the present study treats the augmentation family, its strength $p_f$, and the parameter $m_v$ as ablation axes (§3.11).
+All augmentations execute under `torch.no_grad()` to prevent gradient leakage. Both datasets use `UniformResample` with $p_f = 0.1$, $p_s = 1.0$, $m_v = 1.7$, $\mu_v = 0.0$ — the upstream CLAN default — so that the comparison in Chapter 4 isolates the dataset rather than the augmentation.
 
 ## 3.6 Anomaly Scoring and Few-Shot Fine-Tuning
 
@@ -81,56 +87,47 @@ $$
 
 is computed once on the training split and cached. At test time the score is $s(x) = -\cos(\mu, f_\theta(x))$. A higher score indicates a larger angular deviation from the benign manifold. The evaluation reports per-class one-vs-benign AUROC (§3.10) rather than a single threshold, preserving operating-point independence.
 
-**Few-shot fine-tuning.** Given a pretrained encoder $f_\theta$ and a labelled subset $\mathcal{D}^{(K)}$, the present study attaches a linear head $g_\phi(z) = W z + b$ with $W \in \mathbb{R}^{(C+1) \times d'}$. Following the upstream implementation in `finetune_clan.py`, both $f_\theta$ and $g_\phi$ are trained jointly with cross-entropy loss for 100 epochs at $\text{lr} = 10^{-3}$, weight decay $10^{-6}$, batch size 64, and an optional label smoothing of 0.0 or 0.1. Test metrics are macro-F1, macro-recall, macro-precision, and accuracy; §3.10 justifies the choice.
+**Few-shot fine-tuning.** Given a pretrained encoder $f_\theta$ and a labelled subset $\mathcal{D}^{(K)}$, the present study attaches a linear head $g_\phi(z) = W z + b$ with $W \in \mathbb{R}^{(C+1) \times d'}$. Both $f_\theta$ and $g_\phi$ are trained jointly with cross-entropy loss for 100 epochs at $\text{lr} = 10^{-3}$, weight decay $10^{-6}$, batch size 64, and label smoothing 0.0. The paper-versus-code discrepancy on this learning rate — Wilkie et al. (2025, §V-A) report $10^{-6}$ whereas the upstream code default is $10^{-3}$ — is discussed in §3.11.1; this thesis adopts the code value and interprets the paper figure as a typographical error. Test metrics are macro-F1, macro-recall, macro-precision, and accuracy; §3.10 justifies the choice of macro-F1 as the primary headline metric.
 
 ## 3.7 Training, Optimisation, and Inference
 
 **Optimiser.** AdamW with $\beta_1 = 0.9$, $\beta_2 = 0.999$, weight decay 0 during pretraining and $10^{-6}$ during fine-tuning, matching the upstream settings.
 
-**Learning-rate schedule.** Warmup-cosine annealing (Loshchilov & Hutter, 2017), as implemented in `nids/training/schedules.py`: linear warmup from $10^{-6}$ to $10^{-4}$ over the first 10% of training steps, followed by cosine decay back to $10^{-6}$ over the remainder. The `WarmupCosineSchedule` class matches the one used by Wilkie et al.
+**Learning-rate schedule.** Warmup-cosine annealing (Loshchilov & Hutter, 2017), as implemented in `nids/training/schedules.py`: linear warmup from $10^{-6}$ to $10^{-4}$ over the first 10% of training steps, followed by cosine decay back to $10^{-6}$ over the remainder.
 
-**Batching.** The pretraining batch size is 8192 (upstream default). A `WeightedRandomSampler` draws samples with weights proportional to inverse class frequency, preventing minority-class collapse in the fine-tuning phase. See `nids/data/loaders.py::tabular_dl`.
+**Batching and mixed precision.** The upstream pretraining batch size is 8192. This thesis lowers it to 2048 to fit within the 6 GB VRAM of the RTX 3060 Laptop GPU on which all experiments run, and enables automatic mixed precision (`torch.cuda.amp.autocast` + `GradScaler`) to recover throughput; the resulting wall-clock is approximately 30–60 minutes per pretraining run on 3060. The same batch size is used on both datasets. A `WeightedRandomSampler` draws samples with weights proportional to inverse class frequency during fine-tuning, preventing minority-class collapse. The implementation lives in `nids/data/loaders.py::tabular_dl`.
 
-**Seeding.** The utility `nids.utils.reproducibility.seed_everything(seed)` sets NumPy, PyTorch (CPU and CUDA), Python's `random` module, and the `PYTHONHASHSEED` environment variable, and enables `torch.backends.cudnn.deterministic=True` with `benchmark=False`. Three pretraining seeds, $\{42, 43, 44\}$, are used for mean-and-standard-deviation reporting; the data split seed is fixed at 39 058 032 so that every seed operates on the same partition.
+**Seeding.** The utility `nids.utils.reproducibility.seed_everything(seed)` sets NumPy, PyTorch (CPU and CUDA), Python's `random` module, and the `PYTHONHASHSEED` environment variable, and enables `torch.backends.cudnn.deterministic = True` with `benchmark = False`. Three pretraining seeds $\{42, 43, 44\}$ are used for mean-and-standard-deviation reporting; the data split seed is fixed at 39 058 032 so that every seed operates on the same partition; fine-tune sample seeds $\{0, 1, \dots, 9\}$ are used for the ten-run averaging described in §3.10.
 
-**Inference.** A single forward pass through $f_\theta$ followed by one dot-product with the cached centroid yields the anomaly score. The inference cost is $O(d' + |\mathcal{D}_B| / |\mathcal{B}|)$, substantially lighter than the BYOL, SimSiam, and VICReg baselines, which require either a memory bank or an auxiliary predictor during evaluation (Wilkie et al., 2025).
+**Inference.** A single forward pass through $f_\theta$ followed by one dot-product with the cached centroid yields the anomaly score. The inference cost is $O(d')$ per query, substantially lighter than the memory-bank-based baselines of Chapter 2 (Wilkie et al., 2025).
 
-## 3.8 Dataset: Lycos2017
+## 3.8 Datasets: Lycos2017 and CICIDS2017
 
-### 3.8.1 Provenance
+### 3.8.1 Lycos2017 (clean corpus)
 
-Lycos2017 was released by Rosay et al. (2021) as the corrected version of CICIDS2017. It was produced by re-running a replacement feature extractor (*LycoSTand*) on the original CICIDS2017 packet captures and re-labelling each flow according to the corrected ground truth documented by Engelen et al. (2021) and Rosay et al. (2022). The present study uses the preprocessed single-CSV bundle distributed at `https://lycos-ids.univ-lemans.fr`, cached locally at `data/raw/lycos.csv`.
+Lycos2017 was released by Rosay et al. (2021, 2022) as the corrected version of CICIDS2017. It was produced by re-running a replacement feature extractor (*LycoSTand*) on the original CICIDS2017 packet captures and re-labelling each flow according to the corrected ground truth documented by Engelen et al. (2021). The present study uses the preprocessed single-CSV bundle distributed at `https://lycos-ids.univ-lemans.fr`, cached locally at `data/raw/lycos.csv`. The schema contains seven metadata columns (`flow_id`, `src_addr`, `src_port`, `dst_addr`, `dst_port`, `ip_prot`, `timestamp`) dropped before training, a `label` column, and the remaining CICFlowMeter-style flow statistics. The implementation in `nids/data/lycos.py` standardises features to zero mean and unit variance using statistics fit on the benign training split only, preventing leakage from attack statistics.
 
-### 3.8.2 Schema
+### 3.8.2 CICIDS2017 (noisy control corpus)
 
-The CSV contains 79 columns per row. The first seven are metadata that the encoder must never see (`flow_id`, `src_addr`, `src_port`, `dst_addr`, `dst_port`, `ip_prot`, `timestamp`); these are dropped upfront by the `drop_cols` list in `configs/default.yaml`. The remaining 72 columns are CICFlowMeter-style flow statistics, all numeric. A single `label` column carries a string ground truth, taking the value `benign` or one of 12 attack labels matching the CLAN paper's taxonomy (Botnet, DDoS, DoS Golden Eye, DoS Hulk, DoS Slow HTTP Test, DoS Slow Loris, FTP Patator, Portscan, SSH Patator, Web Brute Force, Web XSS, Heartbleed, Web SQL Injection).
+The CICIDS2017 corpus as distributed by the Canadian Institute for Cybersecurity (Sharafaldin et al., 2018) is used without any of the corrections published by Engelen et al. (2021), Rosay et al. (2022), Lanvin et al. (2023), or Liu et al. (2022). The loader in `nids/data/cicids.py` reads the eight day-split archives directly from `data/raw/lycos-ids2017/cicids2017/csv_files/`, normalises the well-known leading-space column names (e.g. `" Label"` becomes `label`), canonicalises the en-dash and mojibake variants of the Web Attack label values, replaces Inf with zero, and standardises features on the benign training split. Labels are otherwise preserved exactly as distributed. The four documented error categories — malformed TCP state machines (Engelen et al., 2021), time-window label leakage (Engelen et al., 2021), duplicated flows from dual termination paths (Rosay et al., 2022), and class-level rank flips (Lanvin et al., 2023) — are therefore inherited into the training and evaluation splits. This is deliberate: the purpose of running CLAN on CICIDS2017 is to measure how much those errors shift the headline metrics, not to silently repair them.
 
-### 3.8.3 Split
+One additional CICIDS2017 defect surfaced during the port that is not cleanly catalogued in the prior-literature audits: the `Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.zip` archive contains 288 602 rows whose label field is literally an empty string (neither a valid class name nor a documented placeholder). These rows are dropped by the loader with a logged warning — dropping rows with *missing* labels does not constitute cleaning of *wrong* labels and therefore does not weaken the noisy-label control argument. Rows with well-defined but erroneous labels (the classes of errors that Engelen et al., 2021 and Rosay et al., 2022 document) are retained unchanged. After this NaN-label drop, the CICIDS2017 corpus as consumed by the pipeline contains approximately 2.83 M flows spanning fourteen non-benign classes, of which three (Heartbleed, Infiltration, Web Attack — SQL Injection) fall below the `sample_threshold = 100` cut-off and are routed to the zero-day holdout exactly as on Lycos2017.
 
-The present study uses a stratified 50/50 train/test split with `split_seed = 39 058 032`, matching the configuration of Wilkie et al. (2025, `eval_clan.py`). A validation carve-out is disabled by default (`val_ratio = 0.0`); ablations that require validation (§3.11) enable it at 10%. Attack classes with fewer than 100 rows in the development set are held out as a separate *zero-day* split that never reaches the pretraining loader, matching the CLAN paper's evaluation recipe. Finally, when `anomaly_detection = True` (the pretraining regime), every non-benign row is removed from the training split *after* the stratified split, reducing the training set to benign traffic only.
+### 3.8.3 Shared Preprocessing Kernel
 
-### 3.8.4 Preprocessing
+Both loaders delegate to `nids.data._core.prepare_splits`, which applies: (a) column drop by normalised name, (b) all-zero column drop (a step matching the upstream `get_data` in the CLAN reference code), (c) NaN/Inf clamping to zero, (d) stratified 50/50 train/test split with `split_seed = 39 058 032`, (e) zero-day carve-out for attack classes with fewer than 100 samples, (f) benign-only filter under `anomaly_detection=True`, and (g) training-split-only feature standardisation. The shared kernel design ensures that any difference in the Chapter 4 tables is attributable to the corpus rather than to the preprocessing.
 
-Any residual categorical column that leaks through `drop_cols` triggers a loud `ValueError` rather than a silent one-hot encoding; this catches schema drift early. `NaN` and `±inf` values are clamped to zero. Features are then standardised to zero mean and unit variance using statistics fit on the benign training split only, preventing leakage from attack statistics. The implementation lives in `nids/data/lycos.py::get_data`.
+### 3.8.4 Class Alignment Between Corpora
 
-## 3.9 Seven SSL Baselines
+CICIDS2017 uses upper-case label values with whitespace and en-dashes (e.g. `Web Attack – Brute Force`) whereas Lycos2017 uses lower-case snake-case (`web_attack_brute_force`). The CICIDS2017 loader canonicalises to the Lycos2017 naming so that the Chapter 4 per-class tables align row by row; the three Web-Attack classes and the two FTP/SSH Patator classes map bijectively. The CICIDS2017 distribution contains two additional rare classes (Heartbleed, Infiltration) that receive zero-day treatment because both fall below the `sample_threshold = 100` cutoff.
 
-All comparison methods run under a shared ContrastiveMLP encoder, a shared augmentation module, a shared DataLoader, a shared set of random seeds, and a shared evaluation protocol. Only the loss function differs. Each baseline is implemented in `nids/training/losses/<name>.py` and selected via the YAML field `loss.name`. Table 3.1 summarises the baselines.
+## 3.9 Dual-Dataset Evaluation Design
 
-Table 3.1: Seven SSL baselines compared against CLAN under the same encoder, augmentation, and evaluation protocol.
+The design of this study is the simplest controlled audit that can answer the research questions of §1.3: hold everything constant except the dataset. Concretely, the same `configs/lycos.yaml` and `configs/cicids.yaml` files share every field except `data.dataset`, `data.csv_path`, and `data.drop_cols` (which differ only because the two extractors produce different metadata column names). Pretraining, evaluation, and fine-tune sweep run under identical seeds, identical batch size, identical optimiser state, identical learning-rate schedule, identical augmentation, and identical model architecture.
 
-| Method | Reference | Key idea | Positives | Negatives |
-|---|---|---|---|---|
-| CLAN | Wilkie et al. (2025) | Augmented view is a *negative*; centroid-based anomaly score | Other benign samples | Augmented view |
-| SimCLR | Chen et al. (2020) | InfoNCE with in-batch negatives | Augmented view | Other in-batch samples |
-| Barlow Twins | Zbontar et al. (2021) | Decorrelation objective (no negatives) | Augmented view | N/A |
-| BYOL | Grill et al. (2020) | Momentum target + predictor (no negatives) | Augmented view via EMA target | N/A |
-| VICReg | Bardes et al. (2022) | Variance + invariance + covariance terms | Augmented view | N/A |
-| SimSiam | Chen and He (2021) | Siamese stop-gradient (no negatives) | Augmented view | N/A |
-| ConFlow | Liu et al. (2023) | Supervised contrastive + cross-entropy | Same-class samples | Different-class samples |
-| SSCL-IDS | Golchin et al. (2024) | Benign-only SimCLR variant | Augmented view | Other benign in batch |
+The study therefore produces a four-way cross-tabulation: for each of the three pretraining seeds and each of the two datasets, one pretrained encoder, one centroid-based AUROC evaluation, and one full fine-tune sweep over eight shot counts with ten fine-tune seeds each. The total count is $2 \times 3 = 6$ pretraining runs and $2 \times 3 \times 8 \times 10 = 480$ fine-tune runs. The total wall-clock on RTX 3060 is estimated at approximately 17 hours.
 
-All baselines use the same encoder width (1024 × 4) and the same 64-dimensional projection head in order to hold the parameter count constant.
+This design trades breadth (no SSL-family comparison) for depth on a single scientific question: *how much does CLAN's headline number move when the underlying dataset shifts from clean to noisy, holding everything else constant?* The rationale for this trade is made explicit in §3.11.3.
 
 ## 3.10 Evaluation Protocol
 
@@ -142,35 +139,51 @@ $$
 \mathrm{AUROC}_c = \Pr\bigl(s(x_a) > s(x_b)\bigr) \quad \text{for } x_a \sim \mathcal{D}_A^c, x_b \sim \mathcal{D}_B.
 $$
 
-The primary headline metric is **Mean AUROC** across the 12 attack classes. A per-class breakdown is additionally reported to expose qualitative patterns.
+The primary headline metric is **Mean AUROC** across the attack classes. A per-class breakdown is additionally reported to expose qualitative patterns and to power the ranking-stability analysis required by RQ3.
 
 ### 3.10.2 Few-Shot Multiclass Evaluation
 
 The study sweeps $K \in \{8, 16, 32, 64, 128, 256, 512, 1024\}$. For each $K$:
 
-1. A `num_benign = K`, `num_mal = K` balanced subset is drawn from the training split (see `nids/data/utils.py::sample_data`).
-2. Features are renormalised using this subset's mean and standard deviation, matching the upstream `finetune_clan.py`.
-3. The encoder and linear head are fine-tuned for 100 epochs at $\text{lr} = 10^{-3}$, $\text{wd} = 10^{-6}$, $\text{batch size} = 64$.
-4. Evaluation is performed on the full held-out test split excluding the fine-tune subset.
+1. A balanced subset with `num_benign = K` and `num_mal = K` is drawn from the training split (see `nids/data/utils.py::sample_data`).
+2. The encoder and linear head are fine-tuned jointly for 100 epochs at $\text{lr} = 10^{-3}$, $\text{wd} = 10^{-6}$, $\text{batch size} = 64$.
+3. Evaluation is performed on the full held-out test split excluding the fine-tune subset.
 
-The primary metric is **macro-F1**. Following Engelen et al. (2021) and Lanvin et al. (2023), macro-F1 is preferred over accuracy or weighted-F1 because CICIDS2017 and Lycos2017's worst label errors concentrate in precisely the small classes to which macro-F1 is sensitive. Macro-recall, macro-precision, and accuracy are reported as secondary metrics.
+The primary metric is **macro-F1**. Following Engelen et al. (2021) and Lanvin et al. (2023), macro-F1 is preferred over accuracy or weighted-F1 because CICIDS2017's and Lycos2017's worst label errors concentrate in precisely the small classes to which macro-F1 is sensitive. Macro-recall, macro-precision, and accuracy are reported as secondary metrics.
 
-### 3.10.3 Reporting
+Per the CLAN paper (Wilkie et al., 2025, §V-A), every few-shot macro-F1 number reported in Chapter 4 is the mean and standard deviation across **ten independent sample seeds**, where each seed produces an independently-drawn fine-tune subset. This is implemented by `scripts/finetune_sweep.py`.
 
-Every reported number is the mean and standard deviation across three pretraining seeds, $\{42, 43, 44\}$. The data split seed is held fixed so that each method pretrains on the same partition. Few-shot subsampling uses its own independent seed of 42 to keep the $K$-sample subsets stable across methods.
+### 3.10.3 Ranking Stability Statistic
 
-## 3.11 Ablation Studies
+For RQ3, the per-class AUROC ranking produced on each dataset is compared using Spearman's rank correlation $\rho$ and Kendall's $\tau$. A $\rho$ close to 1 indicates that CLAN's *ordering* of attack classes by difficulty is stable between the clean and noisy corpora; a $\rho$ substantially below 1 indicates that the label regime materially changes which attacks the model finds easy or hard.
 
-The present study holds all other knobs at the CLAN defaults and varies the following six axes.
+### 3.10.4 Reporting
 
-1. **Margin.** $m \in \{0.1, 0.25, 0.5, 1.0, 2.0\}$ (default 0.5). This axis tests whether a softer or harder hinge changes the AUROC / macro-F1 trade-off.
-2. **Augmentation family.** $\{\text{UniformResample}, \text{GaussianResample}, \text{Jitter}, \text{ZeroOutNoise}, \text{FeatureShuffle}\}$. This axis tests whether the observed CLAN gain is robust to the augmentation distribution or is tied to the specific family used by Wilkie et al.
-3. **Augmentation strength.** $p_f \in \{0.05, 0.1, 0.2, 0.4, 0.8\}$ at fixed UniformResample. This axis tests the *sweet-spot* view of Tian et al. (2020): augmentations that are too weak make the pretext task trivial, and augmentations that are too strong destroy semantic content.
-4. **Encoder depth.** Number of DenseBlocks $\in \{2, 3, 4, 6\}$ at fixed width 1024. This axis tests whether the four-layer default is compute-justified.
-5. **L2 normalisation of embeddings.** On or off at the output of $P$. This axis tests whether the implicit normalisation inside the cosine distance is sufficient.
-6. **Few-shot sample count.** Already part of the headline evaluation. Reports the 8 → 1024 curve on both CLAN and the best-performing baseline.
+Every AUROC number in Chapter 4 is the mean and standard deviation across three pretraining seeds $\{42, 43, 44\}$. Every macro-F1 number is the mean and standard deviation across three pretraining seeds × ten fine-tune sample seeds ($n = 30$). The data split seed is held fixed at 39 058 032 so that each method pretrains on the same partition of each corpus.
 
-Each ablation cell is run across the three seeds. The compute budget per cell on an NVIDIA RTX 3060 Laptop GPU (6 GB VRAM) is approximately 35 minutes of pretraining plus 6 minutes of fine-tuning sweep.
+## 3.11 Methodology Transparency
+
+### 3.11.1 Paper-versus-Code Discrepancies Uncovered
+
+During the port, two discrepancies between the CLAN paper (Wilkie et al., 2025) and the upstream Apache-2.0 reference implementation were identified and are documented here as *reproducibility findings* in the sense of MLRC (Reproducibility in Machine Learning Challenge).
+
+First, the upstream repository does not include a `data/` subpackage despite every entry-point script importing from it (for example, `train_clan.py` line 10 imports `from data.load_data import get_data`, `from data.loaders import tabular_dl`, and `from data.utils import sample_data`). The three missing modules were reverse-engineered from their call-site signatures and from Rosay et al.'s (2022) documented preprocessing pipeline; they are re-implemented in `nids/data/lycos.py`, `nids/data/loaders.py`, and `nids/data/utils.py` with module docstrings that flag them explicitly as reconstructions.
+
+Second, the paper (§V-A) states that fine-tuning uses a learning rate of $10^{-6}$, whereas the upstream code (`finetune_clan.py` line 42) sets the argparse default to $10^{-3}$ — a discrepancy of three orders of magnitude. Using $10^{-6}$ over 100 epochs yields essentially frozen weights, inconsistent with the paper's reported 8-shot macro-F1 of 0.496. This thesis therefore adopts the code value and interprets the paper figure as a typographical error. This interpretation is further supported by the fact that every other hyperparameter in the same paragraph (100 epochs, batch size 64) is consistent between paper and code; the learning rate is the sole outlier.
+
+Both findings are logged in the code (`scripts/finetune.py` module docstring and `configs/lycos.yaml` finetune block) so that a downstream reader can locate the provenance without re-reading the thesis.
+
+### 3.11.2 Ablations Within the Available Compute Budget
+
+The full ablation design that would mirror the upstream CLAN paper's 200-iteration random search over five hyperparameters is infeasible on a single RTX 3060. The thesis therefore restricts itself to one targeted ablation that can be run as a by-product of the dual-dataset protocol: the few-shot shot-count sweep $K \in \{8, 16, \dots, 1024\}$ is the natural shared axis between the two datasets and is reported in Chapter 4 as the primary ablation. All other CLAN hyperparameters (margin $m$, augmentation family, augmentation strength $p_f$, encoder depth) are held fixed at the paper defaults so that Chapter 4's interpretation of the Lycos2017-versus-CICIDS2017 shift is not confounded by simultaneous hyperparameter variation.
+
+### 3.11.3 Honest Scope Declaration
+
+Two scope reductions are made explicit here to forestall the most predictable examiner objections.
+
+First, this thesis does not re-run the 200-iteration random-search + five-fold cross-validation protocol that Wilkie et al. (2025, §V-A) employ to choose hyperparameters. That protocol produces 1 000 complete pretraining runs per SSL method. On a single RTX 3060 this would require approximately 500 GPU-hours per method, which is infeasible. Instead this thesis adopts the hyperparameter values published in the upstream code (`configs/lycos.yaml`) and the matching values for CICIDS2017 (`configs/cicids.yaml`). This is a legitimate reproducibility shortcut — the authors' own code is the authoritative source for their hyperparameters — but it means that any suboptimal number reported on CICIDS2017 cannot be disentangled from the hypothesis "CICIDS2017 needs different hyperparameters than Lycos2017."
+
+Second, this thesis does not compare CLAN to the seven SSL baselines listed in Wilkie et al. (2025, Tables I–III). The CLAN paper already provides that comparison on Lycos2017; re-running it on CICIDS2017 would require implementing and validating seven additional loss functions (SimCLR, Barlow Twins, BYOL, VICReg, SimSiam, ConFlow, SSCL-IDS), which sits outside the achievable scope of a single-student undergraduate project on commodity hardware. The present thesis therefore confines itself to the *single-method dual-dataset* audit that no one has yet published, on the grounds that depth on one new question is more valuable than breadth on a question that is already answered. Extending this audit to the seven SSL baselines is listed as future work in Chapter 5.
 
 ## 3.12 Implementation Details
 
@@ -180,12 +193,12 @@ Code is developed locally on macOS with numerically-pure unit tests executed via
 
 ### 3.12.2 Configuration
 
-Every tunable knob is a field of `configs/default.yaml`, organised into seven sections: `data`, `model`, `loss`, `augmentation`, `training`, `finetune`, and `runtime`. The command-line entry points (`scripts/train.py`, `scripts/eval.py`, `scripts/finetune.py`) read this YAML via `nids.config.load_config` and optionally override `runtime.device` through a flag. No hyperparameter is hardcoded in Python source.
+Every tunable knob is a field of one of the two YAML profiles `configs/lycos.yaml` and `configs/cicids.yaml`, organised into seven sections: `data`, `model`, `loss`, `augmentation`, `training`, `finetune`, and `runtime`. The command-line entry points (`scripts/train.py`, `scripts/eval.py`, `scripts/finetune_sweep.py`) read the YAML via `nids.config.load_config` and optionally override `runtime.device` and `runtime.seed` through flags. No hyperparameter is hardcoded in Python source.
 
 ### 3.12.3 Artefact Layout
 
-Each run writes to `artifacts/<loss.name>/<timestamp>_seed<S>/`, producing the following files: the checkpoint `best_model.pt.tar`, the resolved configuration `resolved_config.yaml`, the evaluation report `eval_report.json`, the fine-tune reports `finetune_report_shots<K>.json`, and a training-curves plot `training_curves.png`. Raw data (`data/raw/`), preprocessed caches (`data/processed/`), and artefacts (`artifacts/`) are gitignored.
+Each run writes to `artifacts/<dataset>/<loss.name>/seed<S>/`, producing the following files: the checkpoint `clan.pt.tar`, the resolved configuration `resolved_config.yaml`, the evaluation report `eval_report.json`, the fine-tune per-run JSON `finetune_shots<K>_seed<S>.json`, and the sweep summary CSV `finetune_summary.csv`. Raw data (`data/raw/`), preprocessed caches (`data/processed/`), and artefacts (`artifacts/`) are gitignored.
 
 ### 3.12.4 Reproducibility
 
-Determinism is enforced at three levels: random seeding (see §3.7), dependency pinning (lower bounds in `requirements.txt` and exact versions on the Windows training rig), and code attribution (every ported module cites the upstream CLAN source). Missing upstream modules — specifically `data/load_data.py`, `data/loaders.py`, and `data/utils.py`, which are not checked into the CLAN repository — are flagged as re-implementations in their module docstrings. Unit tests in `tests/test_metrics.py`, `tests/test_contrastive_mlp.py`, `tests/test_clan_loss.py`, and `tests/test_augmentations.py` guard the numerical correctness of the metric, encoder, loss, and augmentation implementations.
+Determinism is enforced at three levels: random seeding (see §3.7), dependency pinning (lower bounds in `requirements.txt` and exact versions on the Windows training rig), and code attribution (every ported module cites the upstream CLAN source at https://github.com/jackwilkie/CLAN, Apache-2.0). Unit tests in `tests/test_metrics.py`, `tests/test_lycos_loader.py`, `tests/test_cicids_loader.py`, `tests/test_contrastive_mlp.py`, `tests/test_clan_loss.py`, `tests/test_augmentations.py`, and `tests/test_distance.py` guard the numerical correctness of the metric, data-loader, encoder, loss, augmentation, and distance implementations. The full pytest suite completes in under one second on Apple Silicon and in under three seconds on the Windows training rig.

@@ -154,4 +154,14 @@ Axelsson, S. (2000). The base-rate fallacy and the difficulty of intrusion detec
 
 McHugh, J. (2000). Testing intrusion detection systems: A critique of the 1998 and 1999 DARPA intrusion detection system evaluations as performed by Lincoln Laboratory. *ACM Transactions on Information and System Security*, *3*(4), 262–294. https://doi.org/10.1145/382912.382923
 
+Pineau, J., Vincent-Lamarre, P., Sinha, K., Larivière, V., Beygelzimer, A., d'Alché-Buc, F., Fox, E., & Larochelle, H. (2021). Improving reproducibility in machine learning research (a report from the NeurIPS 2019 reproducibility program). *Journal of Machine Learning Research*, *22*(164), 1–20. http://jmlr.org/papers/v22/20-303.html
+
+Saito, T., & Rehmsmeier, M. (2015). The precision-recall plot is more informative than the ROC plot when evaluating binary classifiers on imbalanced datasets. *PLOS ONE*, *10*(3), e0118432. https://doi.org/10.1371/journal.pone.0118432
+
+## Robust and Noise-Aware Self-Supervised Learning
+
+Nkashama, D. K., Félicien, J. M., Soltani, A., Verdier, J.-C., Tardif, P.-M., Frappier, M., & Kabanza, F. (2024). Deep learning for network anomaly detection under data contamination: Evaluating robustness and mitigating performance degradation. *arXiv preprint arXiv:2407.08838*. https://arxiv.org/abs/2407.08838
+
+Rusak, E., Reizinger, P., Juhos, A., Bringmann, O., Zimmermann, R. S., & Brendel, W. (2024). InfoNCE: Identifying the gap between theory and practice. *arXiv preprint arXiv:2407.00143*. https://arxiv.org/abs/2407.00143
+
 Saito, T., & Rehmsmeier, M. (2015). The precision-recall plot is more informative than the ROC plot when evaluating binary classifiers on imbalanced datasets. *PLoS ONE*, *10*(3), e0118432. https://doi.org/10.1371/journal.pone.0118432

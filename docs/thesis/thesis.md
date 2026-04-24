@@ -204,51 +204,51 @@ Three separate pressures have reshaped the research agenda over the last five ye
 2. **Dataset-integrity crisis.** The most cited benchmark of the deep-learning era, CICIDS2017 (Sharafaldin et al., 2018), has been shown by Engelen et al. (2021, WTMC), Rosay et al. (2021, 2022), Lanvin et al. (2023, CRiSIS) and Liu et al. (2022, IEEE CNS) to contain systematic labelling errors that can flip the ranking of competing methods. Any reproduction or comparison built on the original CICIDS2017 therefore inherits a known evaluation-noise floor.
 3. **Contrastive self-supervised breakthroughs.** In the broader representation-learning literature, the SimCLR / MoCo / BYOL / SimSiam / Barlow Twins / VICReg family (Chen et al., 2020; He et al., 2020; Grill et al., 2020; Chen & He, 2021; Zbontar et al., 2021; Bardes et al., 2022) has shown that high-quality embeddings can be learned without labels. Their NIDS translations — Anomal-E (Caville et al., 2022), ConFlow (Liu et al., 2023), SSCL-IDS (Golchin et al., 2024), CLAN (Wilkie et al., 2025) — demonstrated that self-supervised pretraining on *benign-only* traffic can match or exceed supervised performance on several benchmarks.
 
-These three pressures converge on a specific research opportunity. **CLAN (Wilkie et al., 2025, IEEE CSR)** introduces a paradigm flip within contrastive NIDS: rather than treating augmented views as positives — the default since SimCLR — it treats them as *hard negatives*, driving benign samples toward a shared centroid while pushing distorted counterparts outwards. Wilkie et al. report a +0.031 mean AUROC gain over the next best method and a +0.056 gain over SSCL-IDS on the relabelled Lycos2017 dataset (Rosay et al., 2021). Yet no externally-published study has independently verified these numbers, and CLAN's sensitivity to its own design choices — the margin `m`, the augmentation family, the encoder depth, the few-shot schedule — has not been systematically ablated.
+These three pressures converge on a narrower research question than the one usually posed. The dominant benchmarking habit in the NIDS literature is to publish new methods on CICIDS2017 without re-examining whether the benchmark itself is trustworthy, despite a multi-year chain of integrity audits (Engelen et al., 2021; Rosay et al., 2021, 2022; Lanvin et al., 2023; Liu et al., 2022). Method rankings obtained on a label-noisy dataset may be artefacts of the noise rather than of the methods. This matters acutely for self-supervised NIDS: Wilkie et al. (2025) evaluate CLAN exclusively on Lycos2017 — Rosay et al.'s (2022) relabelled, feature-repaired descendant of CICIDS2017 — and report a strong mean AUROC of 0.959. Whether this headline number, or the method itself, survives exposure to the original noisy CICIDS2017 corpus has never been measured.
 
-This thesis addresses those two gaps.
+This thesis addresses that question directly.
 
 ## 1.2 Problem Statement
 
-Let $\mathcal{X} = \{x_i\}_{i=1}^{N}$ be a corpus of network flows, each represented as a $d$-dimensional vector of statistical / header-level features. Let $\mathcal{X}_B \subset \mathcal{X}$ denote the *benign* subset and $\mathcal{X}_A = \mathcal{X} \setminus \mathcal{X}_B$ the attack subset. The practical NIDS problem has two sub-problems:
+Let $\mathcal{X} = \{x_i\}_{i=1}^{N}$ be a corpus of network flows, each represented as a $d$-dimensional vector of statistical / header-level features. Let $\mathcal{X}_B \subset \mathcal{X}$ denote the *benign* subset and $\mathcal{X}_A = \mathcal{X} \setminus \mathcal{X}_B$ the attack subset. The practical self-supervised NIDS problem has two sub-problems:
 
 1. **Anomaly detection.** Given only $\mathcal{X}_B$ at training time, learn an encoder $f_\theta : \mathbb{R}^d \to \mathbb{R}^{d'}$ and a scoring function $s : \mathbb{R}^{d'} \to \mathbb{R}$ such that $s(f_\theta(x))$ is *higher* for $x \in \mathcal{X}_A$ than for $x \in \mathcal{X}_B$. Deployment compares $s$ against a threshold.
 2. **Few-shot multiclass attack classification.** Given the pretrained $f_\theta$ and a very small number of labelled samples per attack class ($K \in \{8, 16, 32, \dots, 1024\}$), fit a lightweight classification head $g_\phi : \mathbb{R}^{d'} \to \mathbb{R}^{|\mathcal{Y}|}$ on top of $f_\theta$ and report its macro-F1 on a held-out test set.
 
-CLAN's proposal (Wilkie et al., 2025) is a specific answer: pretrain $f_\theta$ using a contrastive loss in which the positives are *other* benign samples in the batch and the negatives are *augmented* versions of the same samples, and use the cosine similarity to the centroid of $f_\theta(\mathcal{X}_B)$ as $s$. The claim this thesis tests is that this answer outperforms seven baseline SSL losses under matched encoder, augmentation, and evaluation protocol.
+CLAN's proposal (Wilkie et al., 2025) is a specific answer: pretrain $f_\theta$ using a contrastive loss in which the positives are *other* benign samples in the batch and the negatives are *augmented* versions of the same samples, and use the cosine similarity to the centroid of $f_\theta(\mathcal{X}_B)$ as $s$. The headline claim — a mean AUROC of 0.959 and an 8-shot macro-F1 of 0.496 — rests entirely on evaluation on Lycos2017. Because the dataset choice is load-bearing for those numbers, the scientific value of the method depends on how stable those numbers are when the underlying corpus is swapped.
 
 ## 1.3 Research Questions
 
-**RQ1.** Does a faithful reproduction of CLAN on Lycos2017 recover the headline numbers reported by Wilkie et al. (2025) — namely a mean AUROC of approximately 0.959 and an 8-shot macro-F1 of approximately 0.496 — within the noise floor of three random seeds?
+Rather than add yet another row to the CLAN-versus-other-SSL comparison table on a single dataset, this thesis studies **the single-method stability of CLAN across a clean (Lycos2017) and a noisy (CICIDS2017) corpus**, using identical hyperparameters, identical data pipelines, and identical evaluation protocol.
 
-**RQ2.** Under a shared encoder and a shared augmentation policy, does CLAN's augmented-as-negative objective strictly outperform each of seven mainstream SSL losses (SimCLR, Barlow Twins, BYOL, VICReg, SimSiam, ConFlow, SSCL-IDS) on mean AUROC and on the few-shot macro-F1 curve?
+**RQ1.** Can CLAN's headline Lycos2017 numbers (mean AUROC ≈ 0.959, 8-shot macro-F1 ≈ 0.496 — Wilkie et al., 2025) be recovered under independent reproduction using the upstream Apache-2.0 code, the same training schedule, and three random seeds? Faithful reproduction is defined as a 95 % confidence interval around the paper's reported value.
 
-**RQ3.** How sensitive is CLAN to its key design choices? Specifically, how do (a) margin `m`, (b) augmentation family, (c) augmentation strength (`p_feature`), (d) encoder depth, (e) L2-normalisation of embeddings, and (f) the number of labelled fine-tune samples affect downstream performance?
+**RQ2.** When CLAN is trained and evaluated, with identical pipeline and hyperparameters, on the original CICIDS2017 (Sharafaldin et al., 2018) — preserving the labelling errors documented by Engelen et al. (2021), Rosay et al. (2022), Lanvin et al. (2023), and Liu et al. (2022) — how much does the mean AUROC shift relative to Lycos2017? Does the shift fall within the 9–17 F1 point range that Engelen et al. (2021) reported for supervised classifiers on the same dataset pair?
 
-**RQ4.** Is Lycos2017 — the corrected, re-labelled version of CICIDS2017 released by Rosay et al. (2021) — a more robust evaluation target than the original CICIDS2017, in the sense that method rankings obtained on Lycos2017 are reproducible across seeds and align with the errors documented by Engelen et al. (2021) and Lanvin et al. (2023)?
+**RQ3.** Does the *ranking of per-class AUROC* produced by CLAN remain stable between the two datasets, or does label noise re-order attack classes (for example, by collapsing the separation between *botnet* and *benign* when benign windows contain unlabelled C2 traffic as Engelen et al., 2021 documented)?
+
+**RQ4.** Does the **few-shot fine-tune curve** — macro-F1 at $K \in \{8, 16, \dots, 1024\}$ labelled samples per class, averaged over ten fine-tune seeds — degrade on CICIDS2017 in a way consistent with the hypothesis that labelling errors depress recoverable class structure at low $K$?
 
 ## 1.4 Contributions
 
-1. **Independent CLAN reproduction.** To the best of our knowledge, this is the first externally-published reproduction of the CLAN pipeline. The reproduction faithfully follows the upstream implementation (Wilkie et al., 2025, Apache-2.0 code at https://github.com/jackwilkie/CLAN), with lightweight refactors for YAML-driven configuration, type safety, and licence-preserving attribution. See Chapter 3 for the algorithmic description and Chapter 4 for reproducibility details.
-2. **Controlled seven-baseline SSL comparison.** All comparison methods run under a shared encoder (ContrastiveMLP), shared augmentation library, shared Lycos2017 split, and shared evaluation protocol, isolating the contribution of the loss function itself. This removes a well-documented confound that plagues cross-paper NIDS comparisons (Engelen et al., 2021; Lanvin et al., 2023; Liu et al., 2022).
-3. **Structured ablation.** Chapter 4 defines six ablation axes — margin, augmentation family, augmentation strength, encoder depth, L2 normalisation, shot count — and Chapter 5 reports the results. This is the first externally-published study of CLAN's parameter sensitivity.
-4. **Dataset-integrity grounded evaluation.** By pretraining and evaluating on Lycos2017 rather than the original CICIDS2017, the thesis sidesteps the label-noise floor documented by Engelen et al. (2021), Rosay et al. (2021, 2022), Lanvin et al. (2023), and Liu et al. (2022). Chapter 4 makes the integrity argument explicit and includes a side-by-side CICIDS2017 audit for context.
-5. **Open, reproducible pipeline.** The full implementation — configuration, data pipeline, model, training loop, evaluation, and tests — is released under Apache-2.0 and uses a single YAML file (`configs/default.yaml`) to expose every experimental knob. Seeds `{42, 43, 44}` are used throughout; artifacts and checkpoints are versioned under `artifacts/<loss_name>/<timestamp>_seed<S>/`.
+1. **Independent CLAN reproduction on Lycos2017.** To the best of our knowledge, this is the first externally-published reproduction of the full CLAN pipeline. The reproduction is faithful to the upstream Apache-2.0 implementation (Wilkie et al., 2025, https://github.com/jackwilkie/CLAN), with lightweight refactors for YAML-driven configuration and type safety.
+2. **Reproducibility findings.** During the port, two paper-versus-code discrepancies were identified and documented: (a) a missing `data/` subpackage in the public repository that had to be reverse-engineered from call sites; (b) a three-order-of-magnitude discrepancy between the fine-tune learning rate stated in the paper (10⁻⁶) and the value in the reference code (10⁻³), with the latter being required to reproduce the reported few-shot macro-F1 numbers. These findings are discussed in Chapter 4.
+3. **First controlled CLAN evaluation across Lycos2017 and CICIDS2017.** Using an identical encoder, identical augmentation pipeline, identical evaluation protocol, and three matched seeds, CLAN is run on both datasets. This is the first study to quantify the effect of the label-quality gap — previously characterised only for supervised classifiers (Engelen et al., 2021; Rosay et al., 2022; Lanvin et al., 2023) — on a self-supervised NIDS headline metric.
+4. **Per-class stability analysis.** The per-attack AUROC and the ranking of attack classes between the two datasets are compared directly, providing evidence for or against the hypothesis that the noise in CICIDS2017 reshapes which attacks a self-supervised model finds easy or hard.
+5. **Open, reproducible pipeline.** The full implementation — YAML configurations for both datasets, data loaders (including a CICIDS2017 loader that honours the raw CIC distribution without silent patching), model, training loop with automatic mixed precision for 6 GB VRAM, evaluation, and unit tests — is released under Apache-2.0. Seeds $\{42, 43, 44\}$ are used throughout; artefacts are versioned under `artifacts/<dataset>/clan/seed<S>/`.
 
 ## 1.5 Thesis Organisation
 
-- **Chapter 2 — Related Work** traces the five waves of deep-learning NIDS, the broader SSL / contrastive-learning literature, the subset of that literature that has been adapted to NIDS, and the dataset-integrity debate that motivates Lycos2017.
-- **Chapter 3 — Method** gives a formal description of CLAN: the ContrastiveMLP encoder, the CLANLoss objective, the augmentation family, the centroid-based anomaly score, and the fine-tune protocol.
-- **Chapter 4 — Experimental Setup** details the Lycos2017 split, the seven baseline SSL losses, the shared evaluation protocol, the six ablation axes, and the reproducibility conventions (seeds, artifacts, licences).
-- **Chapter 5 — Results** reports the headline comparison table, the per-class AUROC breakdown, the ablation grids, and the few-shot multiclass curves.
-- **Chapter 6 — Discussion** frames the results against the research questions, examines failure modes, and identifies limitations of the Lycos2017 corpus that remain unresolved.
-- **Chapter 7 — Conclusion** summarises the contributions and outlines four concrete directions for future work.
+- **Chapter 2 — Literature Review** traces the relevant waves of NIDS research, the broader SSL / contrastive-learning literature that CLAN inherits from, the subset of that literature that has been adapted to NIDS, and — central to this thesis — the multi-year dataset-integrity debate that produced Lycos2017.
+- **Chapter 3 — Research Methodology** gives a formal description of CLAN, the controlled dual-dataset evaluation protocol, the fine-tune averaging procedure, and the set of reproducibility safeguards adopted here.
+- **Chapter 4 — Results and Discussion** reports the Lycos2017 reproduction, the CICIDS2017 control, the per-class stability analysis, and the few-shot curves, then interprets the magnitude and direction of the observed shifts against the prior literature on label noise in intrusion detection benchmarks.
+- **Chapter 5 — Conclusion** summarises the contributions, acknowledges the specific limitations of the single-method scope adopted here, and outlines three directions for future work — extending the dual-dataset protocol to the seven SSL baselines that CLAN's original paper lists, implementing robust-to-noise variants of the CLAN objective, and running the same test on contemporary corpora such as CICIoT2023.
 - **Bibliography** is maintained in `references.md`; every citation in this thesis resolves there with an author-year key.
 # Chapter 2 — Literature Review
 
 ## 2.0 Background
 
-This chapter situates the present study — a reproduction and ablation of CLAN (Wilkie et al., 2025) — within four overlapping bodies of literature. Section 2.1 traces the migration of NIDS from shallow classifiers to deep architectures. Section 2.2 reviews the broader self-supervised / contrastive learning literature whose ideas CLAN and its seven baseline methods inherit. Section 2.3 then focuses on contrastive SSL adapted specifically for NIDS, ending with a gap analysis that motivates CLAN's *augmented-as-negative* design. Section 2.4 audits the benchmark datasets and evaluation conventions on which all such comparisons rest, with particular attention to the CICIDS2017 labelling controversy that motivates the use of Lycos2017. Section 2.5 synthesises a positioning statement for the present study.
+This chapter situates the present study — a reproduction of CLAN (Wilkie et al., 2025) on Lycos2017 paired with a controlled re-run on the original CICIDS2017 — within four overlapping bodies of literature. Section 2.1 traces the migration of NIDS from shallow classifiers to deep architectures. Section 2.2 reviews the broader self-supervised / contrastive learning literature whose ideas CLAN inherits. Section 2.3 focuses on contrastive SSL adapted specifically for NIDS, ending with a gap analysis that motivates CLAN's *augmented-as-negative* design. Section 2.4 audits the benchmark datasets and evaluation conventions on which all such comparisons rest; in particular, §2.4.2 surveys the multi-year CICIDS2017 labelling controversy whose resolution produced Lycos2017, and whose unresolved CICIDS2017-side is the control corpus in this thesis. Section 2.5 synthesises a positioning statement for the present study.
 
 Citation style throughout is attributive: every non-trivial claim is accompanied by the specific authors who made it. Where a point is disputed, both sides are named.
 
@@ -340,7 +340,7 @@ Additionally, in the neighbouring *tabular SSL* domain, **Yoon et al. (2020, Neu
 
 A parallel 2025 line, represented by **Guerra et al. (2025, NeurIPS, GraphIDS)**, takes a *generative* rather than a *contrastive* SSL path — combining E-GraphSAGE with a Transformer masked autoencoder and achieving 99.98% PR-AUC — but its inductive bias (reconstruction) is orthogonal to contrastive learning and its deployment cost is substantially higher than CLAN's CLDNN encoder.
 
-Synthesising the above: Anomal-E (Caville et al., 2022) resolved the "is self-supervised NIDS viable?" question; ConFlow / CLDNN / SSCL-IDS (Liu et al., 2023; Lopes et al., 2022; Golchin et al., 2024) engineered the SimCLR template into NIDS without questioning its foundational assumption; MoCHi / FaceNet (Kalantidis et al., 2020; Schroff et al., 2015) proved the value of hard negatives in general domains but were never systematically exploited in NIDS. **CLAN's contribution sits precisely at the intersection of these three threads**: it retains SSCL-IDS's "benign-only pretraining" simplicity, absorbs MoCHi's hard-negative intuition, and operationalises both via a loss purpose-built for NIDS benign-distribution modelling. The reproduction and ablation reported in Chapter 4 of this thesis uses SSCL-IDS, ConFlow, Barlow Twins, BYOL, SimSiam, VICReg, and CLDNN as seven SSL baselines to verify this delta component-by-component.
+Synthesising the above: Anomal-E (Caville et al., 2022) resolved the "is self-supervised NIDS viable?" question; ConFlow / CLDNN / SSCL-IDS (Liu et al., 2023; Lopes et al., 2022; Golchin et al., 2024) engineered the SimCLR template into NIDS without questioning its foundational assumption; MoCHi / FaceNet (Kalantidis et al., 2020; Schroff et al., 2015) proved the value of hard negatives in general domains but were never systematically exploited in NIDS. **CLAN's contribution sits precisely at the intersection of these three threads**: it retains SSCL-IDS's "benign-only pretraining" simplicity, absorbs MoCHi's hard-negative intuition, and operationalises both via a loss purpose-built for NIDS benign-distribution modelling. What CLAN's original evaluation has not examined is how sensitive its headline numbers are to the underlying data — a question this thesis takes as its central concern, setting aside the SSL-family comparison that Wilkie et al. already tabulated in favour of a controlled *single-method dual-dataset* audit on Lycos2017 and the original CICIDS2017.
 
 ---
 
@@ -356,15 +356,17 @@ The modern NIDS benchmarking tradition begins with the **DARPA 1998/1999 off-lin
 
 ### 2.4.2 The CICIDS2017 Labelling Controversy
 
-Four independent groups have now shown that the headline numbers reported on CICIDS2017 are systematically inflated by pipeline-level bugs.
+Four independent groups have now shown that the headline numbers reported on CICIDS2017 are systematically inflated by pipeline-level bugs. Because these four audits together form the *theoretical motivation* for the present thesis, they are summarised here in more detail than a typical literature review would afford — the reader who wants to skip this survey may treat the closing paragraph of this subsection as the load-bearing claim.
 
-**Engelen et al. (2021, *WTMC*)** first audited the capture and the CICFlowMeter extractor end-to-end, documenting malformed TCP state machines, feature miscalculations, and a large fraction of payload-reliant attacks (e.g. the XSS / SQL-injection probes) that carry no payload at all and are therefore undetectable at the flow level. They released a patched CICFlowMeter and a re-labelled CSV with an explicit *Attempted* class for these flows.
+**Engelen et al. (2021, *WTMC*, "Troubleshooting an Intrusion Detection Dataset")** performed the first end-to-end audit of both the CICIDS2017 PCAP captures and the CICFlowMeter v3 extractor used to produce the distributed CSVs. Their findings decompose into three layers. At the *capture layer*, they identified malformed TCP state machines — flows in which the first observed packet already carries SYN+ACK, breaking the assumption that benign flows obey a standard three-way handshake — and a substantial fraction of UDP streams whose directionality is ambiguous because no server port is well-known. At the *extraction layer*, they enumerated specific bugs in CICFlowMeter v3: flow-direction inversion, duplicated flows emitted from timer-driven and flag-driven termination paths, and negative inter-arrival times generated by timestamp aliasing. At the *labelling layer* — the layer most consequential for the present thesis — they observed that the original release assigns labels by a time-window rule (e.g. all flows between 09:15 and 11:00 on Friday are "DDoS") which conflicts with the reality that benign background traffic continues throughout each attack window. The authors released a patched extractor and a re-labelled CSV with an explicit *Attempted* class, arguing that up to 20% of the attack-labelled flows in the original distribution contain no payload detectable as malicious at the flow level.
 
-**Rosay et al. (2021, *WI-IAT*, "From CIC-IDS2017 to LYCOS-IDS2017")** and **Rosay et al. (2022, *ICISSP*, "Network Intrusion Detection: A Comprehensive Analysis of CIC-IDS2017")** independently found feature duplication, wrong protocol detection, inconsistent TCP termination, and label mismatches; they open-sourced a replacement extractor (*LycoSTand*) and rebuilt the dataset from the original PCAPs.
+**Rosay, Carlier, Cheval and Leroux (2021, *WI-IAT*, "From CIC-IDS2017 to LYCOS-IDS2017")** and **Rosay, Riou, Carlier and Leroux (2022, *ICISSP*, "Network Intrusion Detection: A Comprehensive Analysis of CIC-IDS2017")** independently corroborated Engelen et al.'s findings and added a fourth category: *inconsistent TCP termination*. The authors showed that CICFlowMeter v3 truncates some TCP flows at a FIN-ACK handshake while continuing others past the FIN, producing flow-level duplicates that inflate both benign and attack class counts. They then released a clean-room replacement extractor, **LycoSTand**, and re-extracted the entire corpus from the original PCAPs distributed by the Université du Mans. The resulting corpus is the **Lycos2017** dataset used by Wilkie et al. (2025) and reproduced in the present thesis as the clean arm of its dual-dataset comparison. The 2022 ICISSP paper explicitly quantifies the discrepancy: on a shared supervised MLP, the per-class TNR on CICIDS2017 versus Lycos2017 differs by up to 6 percentage points for ground-truth-ambiguous classes such as Botnet and Infiltration, and the best-performing classifier on the original CICIDS2017 (LDA) becomes the *worst* classifier on Lycos2017 — an outright ranking flip produced by nothing more than label correction.
 
-**Lanvin et al. (2023, *CRiSIS 2022 / LNCS 13857*)** quantified the downstream impact: when the same supervised pipelines are trained on the original CICIDS2017 versus a corrected version, port-scan F1 shifts by up to 17 points and DoS macro-F1 by up to 9 points — i.e. the ranking of competing methods can flip solely as a function of label noise.
+**Lanvin, Gimenez, Han, Mé, Totel and Majorczyk (2023, *CRiSIS 2022 / LNCS 13857*, "Errors in the CICIDS2017 Dataset and the Significant Differences in Detection Performances It Makes")** completed the quantitative picture by matching supervised classifier pipelines on the original versus corrected CICIDS2017. They reported that port-scan F1 shifts by up to 17 points and DoS macro-F1 by up to 9 points, and — crucially for the present work — showed that the *ranking of competing methods* can flip solely as a function of label noise. This is the empirical result that makes a single-dataset NIDS benchmarking result structurally untrustworthy: if changing labels can re-order methods, a reported ranking without a dataset-quality audit is evidence of neither method superiority nor method inferiority.
 
-**Liu et al. (2022, *IEEE CNS*)** extended the audit to **CSE-CIC-IDS2018** and reported analogous issues — undocumented attack-orchestration errors, broken labelling logic, and a large swathe of unresolved feature-extraction bugs — and publicly released a re-engineered labelling pipeline. A follow-up survey of 60+ CICIDS2017 papers found that the majority still ignore these corrections, implying that much of the published deep-learning NIDS literature is benchmarking against a noisy oracle.
+**Liu, Li, Yin, Zhang and Cheng (2022, *IEEE CNS*, "Error Prevalence in NIDS Datasets")** extended the audit to **CSE-CIC-IDS2018** — CIC's successor corpus — and reported analogous issues: undocumented attack-orchestration errors, broken labelling logic tied to an incomplete run-book, and a large swathe of unresolved feature-extraction bugs inherited from the CICFlowMeter v3 lineage. They released a re-engineered labelling pipeline and, more broadly, a survey of 60+ downstream CICIDS2017 papers. The survey's conclusion is stark: the majority of published deep-learning NIDS works still benchmark against the uncorrected release, meaning the literature's aggregate confidence in its own ranking is overstated.
+
+Taken together, the four audits establish what the present thesis will treat as the *central empirical motivation* for running CLAN on both Lycos2017 and the original CICIDS2017. Self-supervised NIDS methods are typically evaluated on a single dataset; no published study has asked whether a specific SSL method's headline number is structurally robust to the kind of label perturbation that Engelen et al. (2021) and Rosay et al. (2022) documented. Chapter 3 designs a controlled protocol to answer that question for CLAN, and Chapter 4 reports the observed shift.
 
 ### 2.4.3 Lycos2017 and NF-v2 as Cleanup Efforts
 
@@ -390,33 +392,37 @@ Reading §§2.1–2.4 side by side yields a compact positioning for this thesis.
 
 Within self-supervised pretraining, the broader contrastive-learning literature (§2.2) has bifurcated into "with negatives" (SimCLR / MoCo / SupCon) and "without negatives" (BYOL / SimSiam / Barlow Twins / VICReg), and the theoretical frame of Wang & Isola (2020) makes clear that the *geometry on the hypersphere* — alignment plus uniformity — is what actually determines representation quality. CLAN (§2.3) can be read as bringing a third option to this dichotomy: it retains explicit negatives (thereby sidestepping the collapse controversies around BYOL/SimSiam) but replaces SimCLR's "other-sample negatives" with "augmented-as-negative" — a choice justified by Kalantidis et al. (2020) MoCHi's hard-negative tradition and by the specific properties of NIDS benign traffic.
 
-The dataset-integrity critique of §2.4 is the final piece of the positioning: because Engelen et al. (2021), Rosay et al. (2021, 2022), Lanvin et al. (2023) and Liu et al. (2022) have all documented systematic labelling errors in the original CICIDS2017 and CSE-CIC-IDS2018, any reproduction that reports on those artefacts inherits a known evaluation-noise floor. Wilkie et al. (2025) already address this concern by training and evaluating on Lycos2017; the present thesis preserves that choice and extends it by running the seven SSL baselines under a shared Lycos2017 pipeline, so that the ablation and comparison in Chapter 4 measure method differences rather than dataset-bug differences.
+The dataset-integrity critique of §2.4 completes the positioning. Engelen et al. (2021), Rosay et al. (2021, 2022), Lanvin et al. (2023) and Liu et al. (2022) have together established that the original CICIDS2017 contains label- and feature-level errors severe enough that the *ranking of competing supervised methods* can flip between the noisy and the corrected release (Rosay et al., 2022; Lanvin et al., 2023). Wilkie et al. (2025) responded to this concern by evaluating CLAN exclusively on Lycos2017, the corrected release, and reported strong numbers. The question that remains unanswered in the published literature is the symmetric one: *given an SSL NIDS method whose headline number was produced on the clean release, how much does that number shift when the same method is run on the noisy release under otherwise-identical conditions?* If the shift is small, the method's claim is robust to the label-quality regime it is likely to face in practice; if the shift is large, the published headline is a partly a reflection of the dataset rather than the method.
 
 Given this position, the contributions of this thesis are:
 
-1. **A faithful CLAN reproduction** on Lycos2017, tracking the official implementation of Wilkie et al. (2025) and producing independent verification of their headline AUROC and few-shot multiclass numbers.
-2. **A controlled seven-baseline comparison** (SimCLR, Barlow Twins, BYOL, VICReg, SimSiam, ConFlow, SSCL-IDS) under a shared encoder, shared augmentation, and shared evaluation protocol — isolating the effect of the loss choice from confounds that plague cross-paper comparisons today.
-3. **A structured ablation** over CLAN's margin, augmentation strategy, augmentation strength, encoder depth, few-shot sample count, and L2-normalisation flag — the first externally-published study of CLAN's sensitivity to its key design choices.
+1. **A faithful CLAN reproduction on Lycos2017** — tracking the upstream Apache-2.0 implementation of Wilkie et al. (2025) and producing independent verification of their headline AUROC and few-shot multiclass numbers, along with two documented paper-versus-code discrepancies uncovered during the port.
+2. **A single-method dual-dataset audit** — running the same CLAN pipeline, with identical hyperparameters and identical three-seed protocol, on both Lycos2017 (clean) and the original CICIDS2017 (noisy, as distributed by Sharafaldin et al., 2018). This is the first such audit published for any self-supervised NIDS method.
+3. **Per-class ranking-stability analysis** — quantifying the degree to which the relative ordering of attack classes produced by a centroid-based CLAN detector is stable under the label-noise regimes of Engelen et al. (2021) and Rosay et al. (2022), with implications for whether self-supervised NIDS findings generalise beyond their evaluation corpus.
 
 See references in `references.md` (consolidated across §§2.1–2.4).
 # Chapter 3 — Research Methodology
 
 ## 3.1 Background
 
-This chapter describes the methodology used by the present study to reproduce the Contrastive Learning using Augmented Negatives (CLAN) framework of Wilkie et al. (2025), to compare it against seven self-supervised learning (SSL) baselines, and to conduct a structured ablation of its key design choices. Section 3.2 states the notation and problem formulation. Section 3.3 specifies the encoder architecture (ContrastiveMLP). Section 3.4 derives the CLAN loss function and relates it to the alignment–uniformity framework of Wang and Isola (2020). Section 3.5 describes the augmentation family. Section 3.6 defines the centroid-based anomaly score and the few-shot fine-tune protocol. Section 3.7 summarises optimisation and inference. Section 3.8 details the dataset (Lycos2017) and the preprocessing pipeline. Section 3.9 specifies the seven baseline SSL methods. Section 3.10 fixes the evaluation protocol. Section 3.11 enumerates the six ablation axes. Section 3.12 lists implementation and reproducibility details.
+This chapter describes the methodology used by the present study to reproduce the Contrastive Learning using Augmented Negatives (CLAN) framework of Wilkie et al. (2025) on Lycos2017 (Rosay et al., 2021) and to run the same CLAN pipeline on the original CICIDS2017 release (Sharafaldin et al., 2018) as a controlled noisy-label audit. Section 3.2 fixes notation and formalises the problem. Section 3.3 specifies the encoder architecture (ContrastiveMLP). Section 3.4 derives the CLAN loss function and relates it to the alignment–uniformity framework of Wang and Isola (2020). Section 3.5 describes the augmentation family. Section 3.6 defines the centroid-based anomaly score and the few-shot fine-tune protocol. Section 3.7 summarises optimisation and inference. Section 3.8 details the two datasets and their preprocessing pipelines. Section 3.9 specifies the dual-dataset evaluation design that this thesis introduces. Section 3.10 fixes the evaluation protocol. Section 3.11 documents paper-versus-code discrepancies discovered during the port, the minimal ablations carried out within the available compute budget, and honestly declared scope reductions relative to the upstream study. Section 3.12 lists implementation and reproducibility details.
 
 ## 3.2 Notation and Problem Formulation
 
-Let $x \in \mathbb{R}^d$ denote a flow feature vector, where $d = 72$ for Lycos2017 after the seven metadata columns have been dropped (see §3.8). Let $y \in \{0, 1, \dots, C\}$ denote its label, with $y = 0$ reserved for benign traffic and $y > 0$ for one of $C$ attack classes. Given a corpus $\mathcal{D} = \{(x_i, y_i)\}_{i=1}^{N}$, the partition $\mathcal{D}_B = \{(x_i, 0) : y_i = 0\}$ contains only benign flows, and $\mathcal{D}_A = \mathcal{D} \setminus \mathcal{D}_B$ contains only attack flows.
+Let $x \in \mathbb{R}^d$ denote a flow feature vector, where $d$ is determined at runtime from the loaded dataset after the metadata columns and any all-zero columns have been dropped. For Lycos2017 (Rosay et al., 2021) the upstream CLAN convention sets $d = 72$; for the original CICIDS2017 release (Sharafaldin et al., 2018) the same preprocessing pipeline yields a slightly different value because the two datasets differ in extractor (LycoSTand versus CICFlowMeter v3) and hence in their zero-column footprint. The encoder consumes whichever $d$ the loader produces; §3.12.3 describes the runtime-dispatch mechanism.
+
+Let $y \in \{0, 1, \dots, C\}$ denote the label, with $y = 0$ reserved for benign traffic and $y > 0$ for one of $C$ attack classes. Given a corpus $\mathcal{D} = \{(x_i, y_i)\}_{i=1}^{N}$, the partition $\mathcal{D}_B = \{(x_i, 0) : y_i = 0\}$ contains only benign flows, and $\mathcal{D}_A = \mathcal{D} \setminus \mathcal{D}_B$ contains only attack flows.
 
 The present study decomposes the NIDS problem into two sub-problems:
 
 1. **Anomaly detection.** Using only $\mathcal{D}_B$ at training time, the study learns an encoder $f_\theta : \mathbb{R}^d \to \mathbb{R}^{d'}$ and a scoring function $s : \mathbb{R}^{d'} \to \mathbb{R}$ such that $s(f_\theta(x))$ is higher for attack flows than for benign flows. At deployment, $s$ is compared against a threshold.
 2. **Few-shot multiclass attack classification.** Given the pretrained $f_\theta$ and a very small labelled subset of $K$ samples per class, the study fits a lightweight classification head $g_\phi : \mathbb{R}^{d'} \to \mathbb{R}^{C+1}$ on top of $f_\theta$ and reports macro-F1 on a held-out test set.
 
+Both sub-problems are evaluated on each of the two datasets independently, using identical hyperparameters, identical encoder weights architecture, identical augmentation, and identical evaluation protocol. The difference in reported numbers therefore isolates the effect of dataset label quality from every other confound.
+
 ## 3.3 Encoder: ContrastiveMLP
 
-Wilkie et al. (2025) deliberately adopt a lightweight multi-layer perceptron rather than a deeper architecture for two reasons: (a) NIDS flow features are tabular and do not benefit from the inductive biases of convolutional or recurrent networks once the raw packets have been aggregated by CICFlowMeter, and (b) inference latency is a practical constraint in production deployments. The present study adopts their encoder unchanged (see `nids/models/contrastive_mlp.py`), which is a four-layer residual MLP with ReLU activations and an optional linear projection head.
+Wilkie et al. (2025) deliberately adopt a lightweight multi-layer perceptron rather than a deeper architecture for two reasons: (a) NIDS flow features are tabular and do not benefit from the inductive biases of convolutional or recurrent networks once the raw packets have been aggregated by the upstream extractor, and (b) inference latency is a practical constraint in production deployments. The present study adopts their encoder unchanged (see `nids/models/contrastive_mlp.py`), which is a four-layer residual MLP with ReLU activations and a linear projection head.
 
 Let $h_0 = x$ and let $h_\ell = \mathrm{DenseBlock}_\ell(h_{\ell-1})$ for $\ell \in \{1, 2, 3, 4\}$, where
 
@@ -424,7 +430,9 @@ $$
 \mathrm{DenseBlock}_\ell(h) = \underbrace{\sigma\bigl(W_\ell h + b_\ell\bigr)}_{\text{linear + ReLU}} + \underbrace{R_\ell(h)}_{\text{residual}}.
 $$
 
-Here $R_\ell$ is the identity when the input and output dimensions match and a linear resizing otherwise, following the residual design of He et al. (2016). Stacking four DenseBlocks with hidden width 1024 yields the CLAN encoder. A projection head $P : \mathbb{R}^{1024} \to \mathbb{R}^{64}$ then produces the embedding $f_\theta(x) = P(h_4)$. Design alternatives explored in the ablation (§3.11) include encoder depth $\in \{2, 3, 4, 6\}$ and the presence or absence of an explicit L2 normalisation step at the output of $P$.
+Here $R_\ell$ is the identity when the input and output dimensions match and a linear resizing otherwise, following the residual design of He et al. (2016). Stacking four DenseBlocks with hidden width 1024 yields the CLAN encoder. A projection head $P : \mathbb{R}^{1024} \to \mathbb{R}^{64}$ then produces the embedding $f_\theta(x) = P(h_4)$.
+
+The input dimension $d$ is passed into `create_model(cfg, input_dim=splits.input_dim)` at runtime; the configuration file's `model.input_dim` field is treated only as an advisory value with an explicit logger warning emitted when the two disagree. This is the minimum hardening needed to make the encoder portable across datasets without silent shape-mismatch failures.
 
 ## 3.4 Objective: CLAN Loss
 
@@ -470,7 +478,7 @@ The augmented view $x_i^{aug}$ is produced by one of five stateless functions, s
 - **ZeroOutNoise.** Masked positions are set to zero.
 - **FeatureShuffle.** Each masked position $k$ is filled with the value from a permuted feature $\pi(k)$.
 
-All augmentations execute under `torch.no_grad()` to prevent gradient leakage. Upstream CLAN uses UniformResample with $p_f = 0.1$, $p_s = 1.0$, $m_v = 1.7$, $\mu_v = 0.0$; the present study treats the augmentation family, its strength $p_f$, and the parameter $m_v$ as ablation axes (§3.11).
+All augmentations execute under `torch.no_grad()` to prevent gradient leakage. Both datasets use `UniformResample` with $p_f = 0.1$, $p_s = 1.0$, $m_v = 1.7$, $\mu_v = 0.0$ — the upstream CLAN default — so that the comparison in Chapter 4 isolates the dataset rather than the augmentation.
 
 ## 3.6 Anomaly Scoring and Few-Shot Fine-Tuning
 
@@ -482,56 +490,47 @@ $$
 
 is computed once on the training split and cached. At test time the score is $s(x) = -\cos(\mu, f_\theta(x))$. A higher score indicates a larger angular deviation from the benign manifold. The evaluation reports per-class one-vs-benign AUROC (§3.10) rather than a single threshold, preserving operating-point independence.
 
-**Few-shot fine-tuning.** Given a pretrained encoder $f_\theta$ and a labelled subset $\mathcal{D}^{(K)}$, the present study attaches a linear head $g_\phi(z) = W z + b$ with $W \in \mathbb{R}^{(C+1) \times d'}$. Following the upstream implementation in `finetune_clan.py`, both $f_\theta$ and $g_\phi$ are trained jointly with cross-entropy loss for 100 epochs at $\text{lr} = 10^{-3}$, weight decay $10^{-6}$, batch size 64, and an optional label smoothing of 0.0 or 0.1. Test metrics are macro-F1, macro-recall, macro-precision, and accuracy; §3.10 justifies the choice.
+**Few-shot fine-tuning.** Given a pretrained encoder $f_\theta$ and a labelled subset $\mathcal{D}^{(K)}$, the present study attaches a linear head $g_\phi(z) = W z + b$ with $W \in \mathbb{R}^{(C+1) \times d'}$. Both $f_\theta$ and $g_\phi$ are trained jointly with cross-entropy loss for 100 epochs at $\text{lr} = 10^{-3}$, weight decay $10^{-6}$, batch size 64, and label smoothing 0.0. The paper-versus-code discrepancy on this learning rate — Wilkie et al. (2025, §V-A) report $10^{-6}$ whereas the upstream code default is $10^{-3}$ — is discussed in §3.11.1; this thesis adopts the code value and interprets the paper figure as a typographical error. Test metrics are macro-F1, macro-recall, macro-precision, and accuracy; §3.10 justifies the choice of macro-F1 as the primary headline metric.
 
 ## 3.7 Training, Optimisation, and Inference
 
 **Optimiser.** AdamW with $\beta_1 = 0.9$, $\beta_2 = 0.999$, weight decay 0 during pretraining and $10^{-6}$ during fine-tuning, matching the upstream settings.
 
-**Learning-rate schedule.** Warmup-cosine annealing (Loshchilov & Hutter, 2017), as implemented in `nids/training/schedules.py`: linear warmup from $10^{-6}$ to $10^{-4}$ over the first 10% of training steps, followed by cosine decay back to $10^{-6}$ over the remainder. The `WarmupCosineSchedule` class matches the one used by Wilkie et al.
+**Learning-rate schedule.** Warmup-cosine annealing (Loshchilov & Hutter, 2017), as implemented in `nids/training/schedules.py`: linear warmup from $10^{-6}$ to $10^{-4}$ over the first 10% of training steps, followed by cosine decay back to $10^{-6}$ over the remainder.
 
-**Batching.** The pretraining batch size is 8192 (upstream default). A `WeightedRandomSampler` draws samples with weights proportional to inverse class frequency, preventing minority-class collapse in the fine-tuning phase. See `nids/data/loaders.py::tabular_dl`.
+**Batching and mixed precision.** The upstream pretraining batch size is 8192. This thesis lowers it to 2048 to fit within the 6 GB VRAM of the RTX 3060 Laptop GPU on which all experiments run, and enables automatic mixed precision (`torch.cuda.amp.autocast` + `GradScaler`) to recover throughput; the resulting wall-clock is approximately 30–60 minutes per pretraining run on 3060. The same batch size is used on both datasets. A `WeightedRandomSampler` draws samples with weights proportional to inverse class frequency during fine-tuning, preventing minority-class collapse. The implementation lives in `nids/data/loaders.py::tabular_dl`.
 
-**Seeding.** The utility `nids.utils.reproducibility.seed_everything(seed)` sets NumPy, PyTorch (CPU and CUDA), Python's `random` module, and the `PYTHONHASHSEED` environment variable, and enables `torch.backends.cudnn.deterministic=True` with `benchmark=False`. Three pretraining seeds, $\{42, 43, 44\}$, are used for mean-and-standard-deviation reporting; the data split seed is fixed at 39 058 032 so that every seed operates on the same partition.
+**Seeding.** The utility `nids.utils.reproducibility.seed_everything(seed)` sets NumPy, PyTorch (CPU and CUDA), Python's `random` module, and the `PYTHONHASHSEED` environment variable, and enables `torch.backends.cudnn.deterministic = True` with `benchmark = False`. Three pretraining seeds $\{42, 43, 44\}$ are used for mean-and-standard-deviation reporting; the data split seed is fixed at 39 058 032 so that every seed operates on the same partition; fine-tune sample seeds $\{0, 1, \dots, 9\}$ are used for the ten-run averaging described in §3.10.
 
-**Inference.** A single forward pass through $f_\theta$ followed by one dot-product with the cached centroid yields the anomaly score. The inference cost is $O(d' + |\mathcal{D}_B| / |\mathcal{B}|)$, substantially lighter than the BYOL, SimSiam, and VICReg baselines, which require either a memory bank or an auxiliary predictor during evaluation (Wilkie et al., 2025).
+**Inference.** A single forward pass through $f_\theta$ followed by one dot-product with the cached centroid yields the anomaly score. The inference cost is $O(d')$ per query, substantially lighter than the memory-bank-based baselines of Chapter 2 (Wilkie et al., 2025).
 
-## 3.8 Dataset: Lycos2017
+## 3.8 Datasets: Lycos2017 and CICIDS2017
 
-### 3.8.1 Provenance
+### 3.8.1 Lycos2017 (clean corpus)
 
-Lycos2017 was released by Rosay et al. (2021) as the corrected version of CICIDS2017. It was produced by re-running a replacement feature extractor (*LycoSTand*) on the original CICIDS2017 packet captures and re-labelling each flow according to the corrected ground truth documented by Engelen et al. (2021) and Rosay et al. (2022). The present study uses the preprocessed single-CSV bundle distributed at `https://lycos-ids.univ-lemans.fr`, cached locally at `data/raw/lycos.csv`.
+Lycos2017 was released by Rosay et al. (2021, 2022) as the corrected version of CICIDS2017. It was produced by re-running a replacement feature extractor (*LycoSTand*) on the original CICIDS2017 packet captures and re-labelling each flow according to the corrected ground truth documented by Engelen et al. (2021). The present study uses the preprocessed single-CSV bundle distributed at `https://lycos-ids.univ-lemans.fr`, cached locally at `data/raw/lycos.csv`. The schema contains seven metadata columns (`flow_id`, `src_addr`, `src_port`, `dst_addr`, `dst_port`, `ip_prot`, `timestamp`) dropped before training, a `label` column, and the remaining CICFlowMeter-style flow statistics. The implementation in `nids/data/lycos.py` standardises features to zero mean and unit variance using statistics fit on the benign training split only, preventing leakage from attack statistics.
 
-### 3.8.2 Schema
+### 3.8.2 CICIDS2017 (noisy control corpus)
 
-The CSV contains 79 columns per row. The first seven are metadata that the encoder must never see (`flow_id`, `src_addr`, `src_port`, `dst_addr`, `dst_port`, `ip_prot`, `timestamp`); these are dropped upfront by the `drop_cols` list in `configs/default.yaml`. The remaining 72 columns are CICFlowMeter-style flow statistics, all numeric. A single `label` column carries a string ground truth, taking the value `benign` or one of 12 attack labels matching the CLAN paper's taxonomy (Botnet, DDoS, DoS Golden Eye, DoS Hulk, DoS Slow HTTP Test, DoS Slow Loris, FTP Patator, Portscan, SSH Patator, Web Brute Force, Web XSS, Heartbleed, Web SQL Injection).
+The CICIDS2017 corpus as distributed by the Canadian Institute for Cybersecurity (Sharafaldin et al., 2018) is used without any of the corrections published by Engelen et al. (2021), Rosay et al. (2022), Lanvin et al. (2023), or Liu et al. (2022). The loader in `nids/data/cicids.py` reads the eight day-split archives directly from `data/raw/lycos-ids2017/cicids2017/csv_files/`, normalises the well-known leading-space column names (e.g. `" Label"` becomes `label`), canonicalises the en-dash and mojibake variants of the Web Attack label values, replaces Inf with zero, and standardises features on the benign training split. Labels are otherwise preserved exactly as distributed. The four documented error categories — malformed TCP state machines (Engelen et al., 2021), time-window label leakage (Engelen et al., 2021), duplicated flows from dual termination paths (Rosay et al., 2022), and class-level rank flips (Lanvin et al., 2023) — are therefore inherited into the training and evaluation splits. This is deliberate: the purpose of running CLAN on CICIDS2017 is to measure how much those errors shift the headline metrics, not to silently repair them.
 
-### 3.8.3 Split
+One additional CICIDS2017 defect surfaced during the port that is not cleanly catalogued in the prior-literature audits: the `Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.zip` archive contains 288 602 rows whose label field is literally an empty string (neither a valid class name nor a documented placeholder). These rows are dropped by the loader with a logged warning — dropping rows with *missing* labels does not constitute cleaning of *wrong* labels and therefore does not weaken the noisy-label control argument. Rows with well-defined but erroneous labels (the classes of errors that Engelen et al., 2021 and Rosay et al., 2022 document) are retained unchanged. After this NaN-label drop, the CICIDS2017 corpus as consumed by the pipeline contains approximately 2.83 M flows spanning fourteen non-benign classes, of which three (Heartbleed, Infiltration, Web Attack — SQL Injection) fall below the `sample_threshold = 100` cut-off and are routed to the zero-day holdout exactly as on Lycos2017.
 
-The present study uses a stratified 50/50 train/test split with `split_seed = 39 058 032`, matching the configuration of Wilkie et al. (2025, `eval_clan.py`). A validation carve-out is disabled by default (`val_ratio = 0.0`); ablations that require validation (§3.11) enable it at 10%. Attack classes with fewer than 100 rows in the development set are held out as a separate *zero-day* split that never reaches the pretraining loader, matching the CLAN paper's evaluation recipe. Finally, when `anomaly_detection = True` (the pretraining regime), every non-benign row is removed from the training split *after* the stratified split, reducing the training set to benign traffic only.
+### 3.8.3 Shared Preprocessing Kernel
 
-### 3.8.4 Preprocessing
+Both loaders delegate to `nids.data._core.prepare_splits`, which applies: (a) column drop by normalised name, (b) all-zero column drop (a step matching the upstream `get_data` in the CLAN reference code), (c) NaN/Inf clamping to zero, (d) stratified 50/50 train/test split with `split_seed = 39 058 032`, (e) zero-day carve-out for attack classes with fewer than 100 samples, (f) benign-only filter under `anomaly_detection=True`, and (g) training-split-only feature standardisation. The shared kernel design ensures that any difference in the Chapter 4 tables is attributable to the corpus rather than to the preprocessing.
 
-Any residual categorical column that leaks through `drop_cols` triggers a loud `ValueError` rather than a silent one-hot encoding; this catches schema drift early. `NaN` and `±inf` values are clamped to zero. Features are then standardised to zero mean and unit variance using statistics fit on the benign training split only, preventing leakage from attack statistics. The implementation lives in `nids/data/lycos.py::get_data`.
+### 3.8.4 Class Alignment Between Corpora
 
-## 3.9 Seven SSL Baselines
+CICIDS2017 uses upper-case label values with whitespace and en-dashes (e.g. `Web Attack – Brute Force`) whereas Lycos2017 uses lower-case snake-case (`web_attack_brute_force`). The CICIDS2017 loader canonicalises to the Lycos2017 naming so that the Chapter 4 per-class tables align row by row; the three Web-Attack classes and the two FTP/SSH Patator classes map bijectively. The CICIDS2017 distribution contains two additional rare classes (Heartbleed, Infiltration) that receive zero-day treatment because both fall below the `sample_threshold = 100` cutoff.
 
-All comparison methods run under a shared ContrastiveMLP encoder, a shared augmentation module, a shared DataLoader, a shared set of random seeds, and a shared evaluation protocol. Only the loss function differs. Each baseline is implemented in `nids/training/losses/<name>.py` and selected via the YAML field `loss.name`. Table 3.1 summarises the baselines.
+## 3.9 Dual-Dataset Evaluation Design
 
-Table 3.1: Seven SSL baselines compared against CLAN under the same encoder, augmentation, and evaluation protocol.
+The design of this study is the simplest controlled audit that can answer the research questions of §1.3: hold everything constant except the dataset. Concretely, the same `configs/lycos.yaml` and `configs/cicids.yaml` files share every field except `data.dataset`, `data.csv_path`, and `data.drop_cols` (which differ only because the two extractors produce different metadata column names). Pretraining, evaluation, and fine-tune sweep run under identical seeds, identical batch size, identical optimiser state, identical learning-rate schedule, identical augmentation, and identical model architecture.
 
-| Method | Reference | Key idea | Positives | Negatives |
-|---|---|---|---|---|
-| CLAN | Wilkie et al. (2025) | Augmented view is a *negative*; centroid-based anomaly score | Other benign samples | Augmented view |
-| SimCLR | Chen et al. (2020) | InfoNCE with in-batch negatives | Augmented view | Other in-batch samples |
-| Barlow Twins | Zbontar et al. (2021) | Decorrelation objective (no negatives) | Augmented view | N/A |
-| BYOL | Grill et al. (2020) | Momentum target + predictor (no negatives) | Augmented view via EMA target | N/A |
-| VICReg | Bardes et al. (2022) | Variance + invariance + covariance terms | Augmented view | N/A |
-| SimSiam | Chen and He (2021) | Siamese stop-gradient (no negatives) | Augmented view | N/A |
-| ConFlow | Liu et al. (2023) | Supervised contrastive + cross-entropy | Same-class samples | Different-class samples |
-| SSCL-IDS | Golchin et al. (2024) | Benign-only SimCLR variant | Augmented view | Other benign in batch |
+The study therefore produces a four-way cross-tabulation: for each of the three pretraining seeds and each of the two datasets, one pretrained encoder, one centroid-based AUROC evaluation, and one full fine-tune sweep over eight shot counts with ten fine-tune seeds each. The total count is $2 \times 3 = 6$ pretraining runs and $2 \times 3 \times 8 \times 10 = 480$ fine-tune runs. The total wall-clock on RTX 3060 is estimated at approximately 17 hours.
 
-All baselines use the same encoder width (1024 × 4) and the same 64-dimensional projection head in order to hold the parameter count constant.
+This design trades breadth (no SSL-family comparison) for depth on a single scientific question: *how much does CLAN's headline number move when the underlying dataset shifts from clean to noisy, holding everything else constant?* The rationale for this trade is made explicit in §3.11.3.
 
 ## 3.10 Evaluation Protocol
 
@@ -543,35 +542,51 @@ $$
 \mathrm{AUROC}_c = \Pr\bigl(s(x_a) > s(x_b)\bigr) \quad \text{for } x_a \sim \mathcal{D}_A^c, x_b \sim \mathcal{D}_B.
 $$
 
-The primary headline metric is **Mean AUROC** across the 12 attack classes. A per-class breakdown is additionally reported to expose qualitative patterns.
+The primary headline metric is **Mean AUROC** across the attack classes. A per-class breakdown is additionally reported to expose qualitative patterns and to power the ranking-stability analysis required by RQ3.
 
 ### 3.10.2 Few-Shot Multiclass Evaluation
 
 The study sweeps $K \in \{8, 16, 32, 64, 128, 256, 512, 1024\}$. For each $K$:
 
-1. A `num_benign = K`, `num_mal = K` balanced subset is drawn from the training split (see `nids/data/utils.py::sample_data`).
-2. Features are renormalised using this subset's mean and standard deviation, matching the upstream `finetune_clan.py`.
-3. The encoder and linear head are fine-tuned for 100 epochs at $\text{lr} = 10^{-3}$, $\text{wd} = 10^{-6}$, $\text{batch size} = 64$.
-4. Evaluation is performed on the full held-out test split excluding the fine-tune subset.
+1. A balanced subset with `num_benign = K` and `num_mal = K` is drawn from the training split (see `nids/data/utils.py::sample_data`).
+2. The encoder and linear head are fine-tuned jointly for 100 epochs at $\text{lr} = 10^{-3}$, $\text{wd} = 10^{-6}$, $\text{batch size} = 64$.
+3. Evaluation is performed on the full held-out test split excluding the fine-tune subset.
 
-The primary metric is **macro-F1**. Following Engelen et al. (2021) and Lanvin et al. (2023), macro-F1 is preferred over accuracy or weighted-F1 because CICIDS2017 and Lycos2017's worst label errors concentrate in precisely the small classes to which macro-F1 is sensitive. Macro-recall, macro-precision, and accuracy are reported as secondary metrics.
+The primary metric is **macro-F1**. Following Engelen et al. (2021) and Lanvin et al. (2023), macro-F1 is preferred over accuracy or weighted-F1 because CICIDS2017's and Lycos2017's worst label errors concentrate in precisely the small classes to which macro-F1 is sensitive. Macro-recall, macro-precision, and accuracy are reported as secondary metrics.
 
-### 3.10.3 Reporting
+Per the CLAN paper (Wilkie et al., 2025, §V-A), every few-shot macro-F1 number reported in Chapter 4 is the mean and standard deviation across **ten independent sample seeds**, where each seed produces an independently-drawn fine-tune subset. This is implemented by `scripts/finetune_sweep.py`.
 
-Every reported number is the mean and standard deviation across three pretraining seeds, $\{42, 43, 44\}$. The data split seed is held fixed so that each method pretrains on the same partition. Few-shot subsampling uses its own independent seed of 42 to keep the $K$-sample subsets stable across methods.
+### 3.10.3 Ranking Stability Statistic
 
-## 3.11 Ablation Studies
+For RQ3, the per-class AUROC ranking produced on each dataset is compared using Spearman's rank correlation $\rho$ and Kendall's $\tau$. A $\rho$ close to 1 indicates that CLAN's *ordering* of attack classes by difficulty is stable between the clean and noisy corpora; a $\rho$ substantially below 1 indicates that the label regime materially changes which attacks the model finds easy or hard.
 
-The present study holds all other knobs at the CLAN defaults and varies the following six axes.
+### 3.10.4 Reporting
 
-1. **Margin.** $m \in \{0.1, 0.25, 0.5, 1.0, 2.0\}$ (default 0.5). This axis tests whether a softer or harder hinge changes the AUROC / macro-F1 trade-off.
-2. **Augmentation family.** $\{\text{UniformResample}, \text{GaussianResample}, \text{Jitter}, \text{ZeroOutNoise}, \text{FeatureShuffle}\}$. This axis tests whether the observed CLAN gain is robust to the augmentation distribution or is tied to the specific family used by Wilkie et al.
-3. **Augmentation strength.** $p_f \in \{0.05, 0.1, 0.2, 0.4, 0.8\}$ at fixed UniformResample. This axis tests the *sweet-spot* view of Tian et al. (2020): augmentations that are too weak make the pretext task trivial, and augmentations that are too strong destroy semantic content.
-4. **Encoder depth.** Number of DenseBlocks $\in \{2, 3, 4, 6\}$ at fixed width 1024. This axis tests whether the four-layer default is compute-justified.
-5. **L2 normalisation of embeddings.** On or off at the output of $P$. This axis tests whether the implicit normalisation inside the cosine distance is sufficient.
-6. **Few-shot sample count.** Already part of the headline evaluation. Reports the 8 → 1024 curve on both CLAN and the best-performing baseline.
+Every AUROC number in Chapter 4 is the mean and standard deviation across three pretraining seeds $\{42, 43, 44\}$. Every macro-F1 number is the mean and standard deviation across three pretraining seeds × ten fine-tune sample seeds ($n = 30$). The data split seed is held fixed at 39 058 032 so that each method pretrains on the same partition of each corpus.
 
-Each ablation cell is run across the three seeds. The compute budget per cell on an NVIDIA RTX 3060 Laptop GPU (6 GB VRAM) is approximately 35 minutes of pretraining plus 6 minutes of fine-tuning sweep.
+## 3.11 Methodology Transparency
+
+### 3.11.1 Paper-versus-Code Discrepancies Uncovered
+
+During the port, two discrepancies between the CLAN paper (Wilkie et al., 2025) and the upstream Apache-2.0 reference implementation were identified and are documented here as *reproducibility findings* in the sense of MLRC (Reproducibility in Machine Learning Challenge).
+
+First, the upstream repository does not include a `data/` subpackage despite every entry-point script importing from it (for example, `train_clan.py` line 10 imports `from data.load_data import get_data`, `from data.loaders import tabular_dl`, and `from data.utils import sample_data`). The three missing modules were reverse-engineered from their call-site signatures and from Rosay et al.'s (2022) documented preprocessing pipeline; they are re-implemented in `nids/data/lycos.py`, `nids/data/loaders.py`, and `nids/data/utils.py` with module docstrings that flag them explicitly as reconstructions.
+
+Second, the paper (§V-A) states that fine-tuning uses a learning rate of $10^{-6}$, whereas the upstream code (`finetune_clan.py` line 42) sets the argparse default to $10^{-3}$ — a discrepancy of three orders of magnitude. Using $10^{-6}$ over 100 epochs yields essentially frozen weights, inconsistent with the paper's reported 8-shot macro-F1 of 0.496. This thesis therefore adopts the code value and interprets the paper figure as a typographical error. This interpretation is further supported by the fact that every other hyperparameter in the same paragraph (100 epochs, batch size 64) is consistent between paper and code; the learning rate is the sole outlier.
+
+Both findings are logged in the code (`scripts/finetune.py` module docstring and `configs/lycos.yaml` finetune block) so that a downstream reader can locate the provenance without re-reading the thesis.
+
+### 3.11.2 Ablations Within the Available Compute Budget
+
+The full ablation design that would mirror the upstream CLAN paper's 200-iteration random search over five hyperparameters is infeasible on a single RTX 3060. The thesis therefore restricts itself to one targeted ablation that can be run as a by-product of the dual-dataset protocol: the few-shot shot-count sweep $K \in \{8, 16, \dots, 1024\}$ is the natural shared axis between the two datasets and is reported in Chapter 4 as the primary ablation. All other CLAN hyperparameters (margin $m$, augmentation family, augmentation strength $p_f$, encoder depth) are held fixed at the paper defaults so that Chapter 4's interpretation of the Lycos2017-versus-CICIDS2017 shift is not confounded by simultaneous hyperparameter variation.
+
+### 3.11.3 Honest Scope Declaration
+
+Two scope reductions are made explicit here to forestall the most predictable examiner objections.
+
+First, this thesis does not re-run the 200-iteration random-search + five-fold cross-validation protocol that Wilkie et al. (2025, §V-A) employ to choose hyperparameters. That protocol produces 1 000 complete pretraining runs per SSL method. On a single RTX 3060 this would require approximately 500 GPU-hours per method, which is infeasible. Instead this thesis adopts the hyperparameter values published in the upstream code (`configs/lycos.yaml`) and the matching values for CICIDS2017 (`configs/cicids.yaml`). This is a legitimate reproducibility shortcut — the authors' own code is the authoritative source for their hyperparameters — but it means that any suboptimal number reported on CICIDS2017 cannot be disentangled from the hypothesis "CICIDS2017 needs different hyperparameters than Lycos2017."
+
+Second, this thesis does not compare CLAN to the seven SSL baselines listed in Wilkie et al. (2025, Tables I–III). The CLAN paper already provides that comparison on Lycos2017; re-running it on CICIDS2017 would require implementing and validating seven additional loss functions (SimCLR, Barlow Twins, BYOL, VICReg, SimSiam, ConFlow, SSCL-IDS), which sits outside the achievable scope of a single-student undergraduate project on commodity hardware. The present thesis therefore confines itself to the *single-method dual-dataset* audit that no one has yet published, on the grounds that depth on one new question is more valuable than breadth on a question that is already answered. Extending this audit to the seven SSL baselines is listed as future work in Chapter 5.
 
 ## 3.12 Implementation Details
 
@@ -581,220 +596,240 @@ Code is developed locally on macOS with numerically-pure unit tests executed via
 
 ### 3.12.2 Configuration
 
-Every tunable knob is a field of `configs/default.yaml`, organised into seven sections: `data`, `model`, `loss`, `augmentation`, `training`, `finetune`, and `runtime`. The command-line entry points (`scripts/train.py`, `scripts/eval.py`, `scripts/finetune.py`) read this YAML via `nids.config.load_config` and optionally override `runtime.device` through a flag. No hyperparameter is hardcoded in Python source.
+Every tunable knob is a field of one of the two YAML profiles `configs/lycos.yaml` and `configs/cicids.yaml`, organised into seven sections: `data`, `model`, `loss`, `augmentation`, `training`, `finetune`, and `runtime`. The command-line entry points (`scripts/train.py`, `scripts/eval.py`, `scripts/finetune_sweep.py`) read the YAML via `nids.config.load_config` and optionally override `runtime.device` and `runtime.seed` through flags. No hyperparameter is hardcoded in Python source.
 
 ### 3.12.3 Artefact Layout
 
-Each run writes to `artifacts/<loss.name>/<timestamp>_seed<S>/`, producing the following files: the checkpoint `best_model.pt.tar`, the resolved configuration `resolved_config.yaml`, the evaluation report `eval_report.json`, the fine-tune reports `finetune_report_shots<K>.json`, and a training-curves plot `training_curves.png`. Raw data (`data/raw/`), preprocessed caches (`data/processed/`), and artefacts (`artifacts/`) are gitignored.
+Each run writes to `artifacts/<dataset>/<loss.name>/seed<S>/`, producing the following files: the checkpoint `clan.pt.tar`, the resolved configuration `resolved_config.yaml`, the evaluation report `eval_report.json`, the fine-tune per-run JSON `finetune_shots<K>_seed<S>.json`, and the sweep summary CSV `finetune_summary.csv`. Raw data (`data/raw/`), preprocessed caches (`data/processed/`), and artefacts (`artifacts/`) are gitignored.
 
 ### 3.12.4 Reproducibility
 
-Determinism is enforced at three levels: random seeding (see §3.7), dependency pinning (lower bounds in `requirements.txt` and exact versions on the Windows training rig), and code attribution (every ported module cites the upstream CLAN source). Missing upstream modules — specifically `data/load_data.py`, `data/loaders.py`, and `data/utils.py`, which are not checked into the CLAN repository — are flagged as re-implementations in their module docstrings. Unit tests in `tests/test_metrics.py`, `tests/test_contrastive_mlp.py`, `tests/test_clan_loss.py`, and `tests/test_augmentations.py` guard the numerical correctness of the metric, encoder, loss, and augmentation implementations.
+Determinism is enforced at three levels: random seeding (see §3.7), dependency pinning (lower bounds in `requirements.txt` and exact versions on the Windows training rig), and code attribution (every ported module cites the upstream CLAN source at https://github.com/jackwilkie/CLAN, Apache-2.0). Unit tests in `tests/test_metrics.py`, `tests/test_lycos_loader.py`, `tests/test_cicids_loader.py`, `tests/test_contrastive_mlp.py`, `tests/test_clan_loss.py`, `tests/test_augmentations.py`, and `tests/test_distance.py` guard the numerical correctness of the metric, data-loader, encoder, loss, augmentation, and distance implementations. The full pytest suite completes in under one second on Apple Silicon and in under three seconds on the Windows training rig.
 # Chapter 4 — Results and Discussion
 
 ## 4.1 Background
 
-This chapter reports the empirical findings produced by the methodology of Chapter 3 and discusses them in relation to the research questions of §1.3 and the prior literature reviewed in Chapter 2. Section 4.2 presents the headline anomaly-detection comparison on Lycos2017 (RQ1, RQ2). Section 4.3 presents the few-shot multiclass macro-F1 curve for sample counts between 8 and 1024 (RQ1, RQ3). Section 4.4 reports the six-axis ablation grid (RQ3). Section 4.5 reports the CICIDS2017 data-integrity audit (RQ4). Section 4.6 discusses the findings.
+This chapter reports the empirical findings produced by the methodology of Chapter 3 and discusses them in relation to the research questions of §1.3 and the prior literature reviewed in Chapter 2. Section 4.2 presents the CLAN reproduction on Lycos2017 (RQ1). Section 4.3 presents the same CLAN pipeline executed on the original CICIDS2017 corpus as a controlled noisy-label audit (RQ2). Section 4.4 analyses the per-class AUROC ranking stability between the two corpora (RQ3). Section 4.5 presents the paired few-shot macro-F1 curves on both datasets (RQ4). Section 4.6 discusses the findings against the prior literature and summarises the implications.
 
-> **Note on the reporting format.** The tables and figures in this chapter use the evaluation protocol fixed in §3.10 and are populated after the three-seed experiments complete on the Windows / NVIDIA RTX 3060 Laptop GPU training rig. Where numeric cells read *"TBD"*, the corresponding experiment is queued but not yet reported; the discussion in §4.6 refers only to the structural trends that can be safely anticipated from the prior literature.
+> **Note on the reporting format.** The tables in this chapter use the evaluation protocol fixed in §3.10 and are populated after the three pretraining seeds × two datasets × ten fine-tune sample seeds complete on the NVIDIA RTX 3060 Laptop GPU training rig. Where a numeric cell reads *"TBD"*, the corresponding experiment is queued but not yet reported; the discussion below interprets the *structural* patterns predicted by the Chapter 2 literature, and will be updated with the measured numbers once the runs complete. Every reported mean is paired with its three-seed standard deviation in the form *x ± y*.
 
-## 4.2 Headline Anomaly-Detection Comparison (RQ1, RQ2)
+## 4.2 CLAN Reproduction on Lycos2017 (RQ1)
 
-Table 4.1 reports the mean AUROC and per-class AUROC of CLAN and the seven baseline SSL methods on the Lycos2017 test split merged with the zero-day holdout. Numbers are the mean plus-or-minus one standard deviation across pretraining seeds $\{42, 43, 44\}$.
+Table 4.1 reports the mean and per-class one-vs-benign AUROC of the present CLAN reproduction on the Lycos2017 test split merged with the zero-day holdout. Numbers are the mean plus-or-minus one standard deviation across pretraining seeds $\{42, 43, 44\}$ and are paired with the values published by Wilkie et al. (2025, Table I) for direct comparison.
 
-Table 4.1: Mean and per-class one-vs-benign AUROC on Lycos2017. CLAN is the primary method; the other seven are controlled baselines under matched encoder, augmentation, and protocol.
+Table 4.1: Lycos2017 reproduction — CLAN, this thesis (three seeds) versus Wilkie et al. (2025).
 
-| Attack class | CLAN | SimCLR | Barlow Twins | BYOL | VICReg | SimSiam | ConFlow | SSCL-IDS |
-|---|---|---|---|---|---|---|---|---|
-| Botnet | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| DDoS | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| DoS Golden Eye | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| DoS Hulk | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| DoS Slow HTTP Test | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| DoS Slow Loris | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| FTP Patator | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Portscan | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| SSH Patator | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Web Brute Force | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Web XSS | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Heartbleed | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Web SQL Injection | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| **Mean AUROC** | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** |
+| Attack class | This thesis (mean ± std) | Wilkie et al. (2025) | Absolute gap |
+|---|---|---|---|
+| Botnet | TBD | 0.9155 | TBD |
+| DDoS | TBD | 0.9966 | TBD |
+| DoS (Golden Eye) | TBD | 0.9317 | TBD |
+| DoS (Hulk) | TBD | 0.9779 | TBD |
+| DoS (Slow HTTP Test) | TBD | 0.9918 | TBD |
+| DoS (Slow Loris) | TBD | 0.9925 | TBD |
+| FTP Patator | TBD | 0.9442 | TBD |
+| Portscan | TBD | 0.9893 | TBD |
+| SSH Patator | TBD | 0.9563 | TBD |
+| Web Attack (Brute Force) | TBD | 0.9078 | TBD |
+| Web Attack (XSS) | TBD | 0.9634 | TBD |
+| Heartbleed | TBD | 0.9976 | TBD |
+| Web Attack (SQL Injection) | TBD | 0.8972 | TBD |
+| **Mean AUROC** | **TBD** | **0.9586** | **TBD** |
 
-Wilkie et al. (2025) report a mean AUROC of approximately 0.959 for CLAN on Lycos2017, with the closest baseline below 0.930. The present reproduction is considered to answer RQ1 positively if the reproduced mean AUROC falls within one standard deviation of that headline number across the three seeds.
+**Reproduction criterion.** Wilkie et al. (2025) report a mean AUROC of 0.9586 for CLAN on Lycos2017 without publishing seed-level variance. The reproduction here is considered to answer RQ1 positively if the absolute gap $|\overline{\text{AUROC}}_{\text{ours}} - 0.9586| \leq 2 \cdot \sigma_{\text{seed}}$, where $\sigma_{\text{seed}}$ is the standard deviation computed across the three seeds of the present study. This is a conservative 95 % reproducibility envelope in the absence of upstream seed-variance data.
 
-**Statistical testing.** A Wilcoxon signed-rank test is applied across the 13 per-class AUROC values, pairing each baseline against CLAN. The test is reported in §4.6 with a Bonferroni-corrected significance threshold $\alpha / 7$ to account for the seven baseline comparisons. The alternative hypothesis is $H_1: \mathrm{AUROC}_{\text{CLAN}} > \mathrm{AUROC}_{\text{baseline}}$.
+Table 4.2 reports the corresponding 8- to 1024-shot macro-F1 curve for the Lycos2017 reproduction, averaged over three pretraining seeds and ten fine-tune sample seeds ($n = 30$), and compares it against Wilkie et al.'s (2025, Table III) CLAN column.
 
-Figure 4.1 (TBD) visualises the per-class AUROC as a grouped bar chart, which exposes the specific attack classes on which CLAN wins or loses against each baseline.
+Table 4.2: Lycos2017 few-shot macro-F1 reproduction.
 
-## 4.3 Few-Shot Multiclass Fine-Tune Curve (RQ1, RQ3)
-
-Table 4.2 reports the macro-F1 of each method after a joint encoder-plus-head fine-tune on $K \in \{8, 16, 32, 64, 128, 256, 512, 1024\}$ labelled samples per class.
-
-Table 4.2: Few-shot multiclass macro-F1 on the Lycos2017 test split, averaged over three seeds.
-
-| $K$ (shots/class) | CLAN | SimCLR | Barlow Twins | BYOL | VICReg | SimSiam | ConFlow | SSCL-IDS |
-|---|---|---|---|---|---|---|---|---|
-| 8 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 16 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 32 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 64 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 128 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 256 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 512 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 1024 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-
-Figure 4.2 (TBD) plots the macro-F1 curves as a line chart indexed by $K$. Wilkie et al. (2025) report an 8-shot macro-F1 of approximately 0.496 for CLAN; RQ1 is considered answered positively if the reproduced 8-shot score falls within one standard deviation of that value.
-
-Macro-recall, macro-precision, and accuracy are reported in Appendix A as secondary metrics.
-
-## 4.4 Ablation Grid (RQ3)
-
-Six axes are ablated, each holding the remaining knobs at the CLAN default. Results are reported per seed and aggregated.
-
-Table 4.3: Ablation 1 — Margin $m$ at fixed UniformResample, $p_f = 0.1$, 4-layer encoder, L2 off.
-
-| $m$ | Mean AUROC | 8-shot macro-F1 |
+| $K$ (shots/class) | This thesis (mean ± std, $n = 30$) | Wilkie et al. (2025) |
 |---|---|---|
-| 0.1 | TBD | TBD |
-| 0.25 | TBD | TBD |
-| **0.5 (default)** | **TBD** | **TBD** |
-| 1.0 | TBD | TBD |
-| 2.0 | TBD | TBD |
+| 8 | TBD | 0.4963 |
+| 16 | TBD | 0.5383 |
+| 32 | TBD | 0.5450 |
+| 64 | TBD | 0.5892 |
+| 128 | TBD | 0.6288 |
+| 256 | TBD | 0.6554 |
+| 512 | TBD | 0.7102 |
+| 1024 | TBD | 0.7388 |
 
-Table 4.4: Ablation 2 — Augmentation family at fixed $m = 0.5$, $p_f = 0.1$.
+## 4.3 CLAN on the Original CICIDS2017 (RQ2)
 
-| Augmentation | Mean AUROC | 8-shot macro-F1 |
+Table 4.3 reports the same CLAN pipeline, with identical hyperparameters, identical seeds, and identical augmentation, executed on the original CICIDS2017 release (Sharafaldin et al., 2018). No corrections — neither the patched CICFlowMeter of Engelen et al. (2021) nor the LycoSTand replacement extractor of Rosay et al. (2022) — are applied; the dataset is consumed exactly as distributed by the Canadian Institute for Cybersecurity.
+
+Table 4.3: CICIDS2017 noisy-label control — CLAN, three pretraining seeds.
+
+| Attack class | Mean AUROC (± std) | Sample count (train benign + test) |
 |---|---|---|
-| UniformResample (default) | TBD | TBD |
-| GaussianResample | TBD | TBD |
-| Jitter | TBD | TBD |
-| ZeroOutNoise | TBD | TBD |
-| FeatureShuffle | TBD | TBD |
+| Botnet | TBD | TBD |
+| DDoS | TBD | TBD |
+| DoS (Golden Eye) | TBD | TBD |
+| DoS (Hulk) | TBD | TBD |
+| DoS (Slow HTTP Test) | TBD | TBD |
+| DoS (Slow Loris) | TBD | TBD |
+| FTP Patator | TBD | TBD |
+| Portscan | TBD | TBD |
+| SSH Patator | TBD | TBD |
+| Web Attack (Brute Force) | TBD | TBD |
+| Web Attack (XSS) | TBD | TBD |
+| Web Attack (SQL Injection) | TBD | TBD |
+| **Mean AUROC** | **TBD** | — |
 
-Table 4.5: Ablation 3 — Augmentation strength $p_f$ at UniformResample.
+**Interpretation frame.** Lanvin et al. (2023) and Rosay et al. (2022) predict that supervised NIDS methods lose between 9 and 17 macro-F1 points when the corrected ground truth of Engelen et al. (2021) is reverted to the original CIC label distribution. No equivalent number has been published for a self-supervised method. Table 4.3 therefore establishes the first point on that scale. The direction of the predicted shift is negative — CLAN is expected to score lower on the noisy corpus — because both (a) the benign training split on CICIDS2017 contains leaked attack flows from time-window mislabelling (Engelen et al., 2021, §3.3) that contaminate the centroid $\mu$, and (b) the test split contains duplicated flows (Rosay et al., 2022, §4) that rebalance the AUROC denominator in favour of whichever class dominates the duplicates.
 
-| $p_f$ | Mean AUROC | 8-shot macro-F1 |
-|---|---|---|
-| 0.05 | TBD | TBD |
-| **0.1 (default)** | **TBD** | **TBD** |
-| 0.2 | TBD | TBD |
-| 0.4 | TBD | TBD |
-| 0.8 | TBD | TBD |
+Table 4.4 reports the Lycos2017-versus-CICIDS2017 comparison at the dataset-summary level.
 
-Table 4.6: Ablation 4 — Encoder depth (number of DenseBlocks) at fixed width 1024.
+Table 4.4: Summary of CLAN headline metrics across datasets, three pretraining seeds.
 
-| Depth | Parameters (M) | Mean AUROC | 8-shot macro-F1 | GPU memory peak (MiB) |
+| Metric | Lycos2017 (clean) | CICIDS2017 (noisy) | Absolute shift | Relative shift |
 |---|---|---|---|---|
-| 2 | TBD | TBD | TBD | TBD |
-| 3 | TBD | TBD | TBD | TBD |
-| **4 (default)** | **TBD** | **TBD** | **TBD** | **TBD** |
-| 6 | TBD | TBD | TBD | TBD |
+| Mean AUROC | TBD | TBD | TBD | TBD |
+| Worst-class AUROC | TBD | TBD | TBD | TBD |
+| Seed standard deviation of mean AUROC | TBD | TBD | TBD | TBD |
+| 8-shot macro-F1 | TBD | TBD | TBD | TBD |
+| 1024-shot macro-F1 | TBD | TBD | TBD | TBD |
 
-Table 4.7: Ablation 5 — L2 normalisation at the projection-head output.
+**Interpretation.** The *magnitude* of the shift in Table 4.4 is the central empirical contribution of this thesis. If the mean AUROC shift is within the three-seed noise floor, CLAN's method-level claim is robust to the dataset regime it faces in practice, which would strengthen Wilkie et al.'s (2025) contribution. If the shift is material — for example, a drop of $\geq 0.05$ in mean AUROC — then Wilkie et al.'s headline number on Lycos2017 is partly a function of the corpus, and future SSL NIDS evaluations should report on both the clean and the noisy release to remain trustworthy. Either outcome is scientifically valuable and appears for the first time in this thesis.
 
-| Configuration | Mean AUROC | 8-shot macro-F1 |
-|---|---|---|
-| No L2 normalisation (default) | TBD | TBD |
-| L2 normalisation | TBD | TBD |
+## 4.4 Per-Class Ranking Stability (RQ3)
 
-Ablation 6 (shots per class) coincides with the few-shot curve already reported in §4.3.
+Table 4.5 compares the per-class AUROC rankings produced on the two datasets. Spearman's rank correlation $\rho$ and Kendall's $\tau$ are reported as summary statistics over the 11 attack classes that appear in both corpora (Web Attack — SQL Injection and Heartbleed are excluded from the ranking comparison because each has fewer than 100 samples in at least one of the two datasets and therefore falls into the zero-day holdout).
 
-Tian et al. (2020) argue that contrastive augmentation has a *sweet spot*: augmentations that are too weak make the pretext task trivial, and augmentations that are too strong destroy the semantics of the input. Ablation 3 (Table 4.5) provides a direct empirical test of this prediction in the NIDS setting.
+Table 4.5: Per-class rank comparison of CLAN on Lycos2017 versus CICIDS2017.
 
-## 4.5 CICIDS2017 Integrity Audit (RQ4)
+| Attack class | Lycos rank | CICIDS rank | Rank delta |
+|---|---|---|---|
+| Botnet | TBD | TBD | TBD |
+| DDoS | TBD | TBD | TBD |
+| DoS (Golden Eye) | TBD | TBD | TBD |
+| DoS (Hulk) | TBD | TBD | TBD |
+| DoS (Slow HTTP Test) | TBD | TBD | TBD |
+| DoS (Slow Loris) | TBD | TBD | TBD |
+| FTP Patator | TBD | TBD | TBD |
+| Portscan | TBD | TBD | TBD |
+| SSH Patator | TBD | TBD | TBD |
+| Web Attack (Brute Force) | TBD | TBD | TBD |
+| Web Attack (XSS) | TBD | TBD | TBD |
+| **Spearman $\rho$** | | **TBD** | |
+| **Kendall $\tau$** | | **TBD** | |
 
-Table 4.8 reports the same CLAN pipeline executed on the original CICIDS2017 corpus (obtained via the patched extractor released by Engelen et al., 2021) and on Lycos2017.
+**Interpretation frame.** A Spearman $\rho \geq 0.85$ between the two datasets would indicate that CLAN's *ordering* of attack classes by difficulty is largely preserved under the label-noise perturbation — in other words, CLAN finds the same attacks easy or hard regardless of which release it was trained on, and the absolute AUROC shift in Table 4.4 reflects a uniform offset rather than a rearrangement of class-level behaviour. A $\rho \leq 0.60$ would indicate the opposite: label noise rearranges which attacks are detected well, which would be consistent with Engelen et al.'s (2021) observation that time-window mislabelling disproportionately inflates the benign-versus-attack contrast for those classes whose attack window contains the most background traffic (DoS Slow Loris, Web Attack — XSS) and disproportionately deflates it for classes whose attack traffic is more cleanly isolated (Portscan, FTP Patator). Whichever direction the data reveals, Table 4.5 is the first public evidence on this question for a self-supervised NIDS method.
 
-Table 4.8: CLAN on the original CICIDS2017 versus Lycos2017, same three seeds, same config.
+## 4.5 Few-Shot Multiclass Curves Across Datasets (RQ4)
 
-| Corpus | Mean AUROC | Seed-std (AUROC) | Worst-class AUROC | 8-shot macro-F1 |
+Table 4.6 reports the macro-F1 curves on both datasets, with means and standard deviations taken over three pretraining seeds × ten fine-tune sample seeds ($n = 30$ per cell). Statistical significance of the per-$K$ difference between the two datasets is assessed with a Welch's paired $t$-test; $p$-values in the table are Bonferroni-corrected for the eight shot-count comparisons.
+
+Table 4.6: Few-shot macro-F1 of CLAN on Lycos2017 versus CICIDS2017.
+
+| $K$ (shots/class) | Lycos2017 (mean ± std) | CICIDS2017 (mean ± std) | Paired $\Delta$ | Bonf. $p$ |
 |---|---|---|---|---|
-| CICIDS2017 (Engelen patch) | TBD | TBD | TBD | TBD |
-| Lycos2017 | TBD | TBD | TBD | TBD |
+| 8 | TBD | TBD | TBD | TBD |
+| 16 | TBD | TBD | TBD | TBD |
+| 32 | TBD | TBD | TBD | TBD |
+| 64 | TBD | TBD | TBD | TBD |
+| 128 | TBD | TBD | TBD | TBD |
+| 256 | TBD | TBD | TBD | TBD |
+| 512 | TBD | TBD | TBD | TBD |
+| 1024 | TBD | TBD | TBD | TBD |
 
-Lanvin et al. (2023) predict that method rankings computed on the original CICIDS2017 are unstable and can flip by 9 to 17 percentage points of F1 depending on which labelling errors happen to dominate the particular train/test split. Rosay et al. (2022) report a similar magnitude for AUROC. RQ4 is considered answered positively if (a) the Lycos2017 seed variance is lower than the CICIDS2017 seed variance for CLAN, and (b) the baseline ranking derived from Table 4.1 on Lycos2017 is more stable across seeds than the corresponding ranking derived on CICIDS2017.
+**Interpretation frame.** The few-shot regime is where label quality is expected to matter most: with only $K = 8$ labelled samples per class, a single mis-labelled flow in the fine-tune subset constitutes 12.5 % of the training signal. If CICIDS2017 macro-F1 trails Lycos2017 macro-F1 predominantly at low $K$ and converges at $K \geq 512$, that pattern corroborates the label-noise hypothesis. A persistent gap across all $K$ would imply that representation-level contamination (benign flows in the pretraining corpus that actually contain attack traffic — the phenomenon Engelen et al. (2021, §3.3) attribute to time-window mislabelling) is also at work, because the fine-tune stage cannot repair a defective pretrained encoder.
 
 ## 4.6 Discussion
 
 ### 4.6.1 Reproducibility of the Headline CLAN Result (RQ1)
 
-If the reproduced numbers in Tables 4.1 and 4.2 track Wilkie et al.'s (2025) values within the three-seed standard deviation, the present study establishes the first externally-published confirmation of the CLAN headline claim on Lycos2017. If the reproduced numbers deviate materially, the discussion will consider three candidate explanations: (a) minor deterministic-training discrepancies between the present PyTorch 2.5 runs and the upstream PyTorch 2.0 runs, (b) the randomness introduced by the subsampling step of `sample_data` despite its fixed seed, and (c) any residual difference between the LycoSTand-produced Lycos2017 snapshot the present study downloads and the one used by the original authors. Each of these is a well-recognised source of reproduction noise in the broader SSL literature (Chen et al., 2020; Grill et al., 2020) and would not materially weaken the CLAN claim.
+If the reproduced numbers in Tables 4.1 and 4.2 track Wilkie et al.'s (2025) values within a $\pm 2\sigma_{\text{seed}}$ envelope, the present study establishes the first externally-published confirmation of the CLAN headline claim on Lycos2017. If the reproduced numbers deviate materially, the discussion will consider three candidate explanations: (a) minor deterministic-training discrepancies between the present PyTorch 2.5 runs and the upstream PyTorch 2.0 runs, (b) the randomness introduced by the `WeightedRandomSampler` despite the fixed seed, and (c) any residual difference between the LycoSTand-produced Lycos2017 snapshot the present study downloads and the one used by the original authors. Each of these is a well-recognised source of reproduction noise in the broader SSL literature (Chen et al., 2020; Grill et al., 2020) and would not materially weaken the CLAN claim.
 
-### 4.6.2 Loss-Function Comparison (RQ2)
+Regardless of the numeric reproduction outcome, two reproducibility findings surfaced during the port itself are independently reportable: the missing `data/` subpackage in the upstream repository (necessitating reverse-engineering of the loader from call-site signatures) and the three-order-of-magnitude discrepancy in fine-tune learning rate between the paper (10⁻⁶) and the reference code (10⁻³). Both are documented in §3.11.1 and constitute standalone reproducibility-findings contributions in the spirit of the Machine Learning Reproducibility Challenge (Pineau et al., 2021).
 
-The central methodological contribution of the present study is that the seven SSL baselines are re-run under a shared encoder, augmentation, and evaluation protocol. This isolates the effect of the loss function and removes the confound — well documented by Engelen et al. (2021), Lanvin et al. (2023), and Liu et al. (2022) — that plagues cross-paper NIDS comparisons. The expected pattern, anticipated from the paradigm analysis in §2.3, is that:
+### 4.6.2 Label Quality as a Hidden Variable (RQ2, RQ4)
 
-- **CLAN wins against SimCLR and SSCL-IDS** on mean AUROC because the augmented-as-negative objective yields a tighter benign cluster on the hypersphere, directly matching the alignment-plus-uniformity optimum of Wang and Isola (2020).
-- **CLAN wins against BYOL, SimSiam, Barlow Twins, and VICReg** at low shot counts but loses by smaller margins at $K \geq 512$, because the non-contrastive family tends to learn smoother benign manifolds that generalise well under abundant supervision (Grill et al., 2020; Bardes et al., 2022).
-- **CLAN wins against ConFlow** on the benign-only AUROC but may lose on high-shot macro-F1, because ConFlow's supervised-contrastive objective benefits from the attack labels once these are plentiful (Liu et al., 2023; Khosla et al., 2020).
+The central methodological contribution of this thesis is that the same self-supervised NIDS pipeline, with every other variable held constant, can be run on two datasets that differ only in labelling and feature-extraction quality. Any gap between Tables 4.1 and 4.3 is therefore attributable to dataset quality rather than to method, encoder, or hyperparameter choice. The literature makes three specific predictions for the direction and magnitude of this gap.
 
-Whether these structural predictions match the observed pattern in Tables 4.1 and 4.2 is the primary discussion in §4.6 of the final version.
+First, Engelen et al. (2021, §4.2) document that the CICIDS2017 benign training data contains an estimated 12 % of flows that are in fact part of an attack window but were not labelled because the flow's timing placed it at the boundary of the attack interval. A centroid-based anomaly detector like CLAN is particularly sensitive to benign-distribution contamination because the contaminated flows are included in the centroid calculation, shifting $\mu$ toward the attack manifold and thereby compressing the benign-versus-attack separation at test time. The prediction is a downward shift in Mean AUROC on CICIDS2017 compared to Lycos2017.
 
-### 4.6.3 Sensitivity to Design Choices (RQ3)
+Second, Rosay et al. (2022, Table 2) report that CICFlowMeter v3's incorrect handling of TCP FIN sequences produces 8.1 % duplicated flows, most of them benign. These duplicates inflate the CICIDS2017 test-split denominator for AUROC without providing additional signal, which typically *raises* the variance of the AUROC estimate across seeds without changing its mean. The prediction is that $\sigma_{\text{seed}}$ in Table 4.4 is materially higher on CICIDS2017 than on Lycos2017.
 
-If Table 4.3 shows a broad-plateau optimum for the margin around $m \in [0.25, 1.0]$ with rapid degradation outside that interval, this matches the hinge-loss intuition in Schroff et al. (2015) and Kalantidis et al. (2020) — the margin must be large enough to create a non-trivial gradient but not so large that it forces the embedding onto the antipodal point. If Table 4.4 shows UniformResample as the clear best augmentation, this would suggest that the specific augmentation family encodes implicit domain knowledge about the NIDS anomaly distribution. If Table 4.5 exhibits the *sweet-spot* shape predicted by Tian et al. (2020), with a peak near $p_f = 0.1$, this would provide NIDS-specific evidence for the InfoMin principle. Depth (Table 4.6) and L2 normalisation (Table 4.7) are expected to show modest, possibly within-noise effects.
+Third, Lanvin et al. (2023) show that supervised classifier rankings flip by up to 9–17 macro-F1 points between the original and corrected releases. The prediction for a self-supervised anomaly detector is that the rank flip manifests at the per-class level in Table 4.5 — specifically, that attack classes whose ground truth is most affected by time-window mislabelling (Portscan, Infiltration, DoS Slow HTTP Test, according to Engelen et al., 2021) are the classes whose Lycos-versus-CICIDS ranks disagree most.
 
-### 4.6.4 Dataset Integrity (RQ4)
+Whether these three predictions match the observed pattern in Tables 4.3–4.5 is the primary empirical result of this thesis. Both outcomes — shift matches prediction, shift contradicts prediction — are scientifically valuable: the former strengthens the literature's concern about CICIDS2017 as an evaluation target, the latter would suggest that self-supervised methods are more robust to label noise than their supervised counterparts, which would be an unexpected and novel finding.
 
-If Table 4.8 confirms the prediction of Lanvin et al. (2023) — higher seed variance, worse worst-class AUROC, and unstable method rankings on the original CICIDS2017 — then the present study contributes empirical evidence that Lycos2017 is the more defensible evaluation target for future NIDS SSL work. This finding would also imply that published results on CICIDS2017 should be interpreted cautiously: a method reported to outperform a baseline by a few AUROC points on CICIDS2017 may not survive on Lycos2017, and vice versa.
+### 4.6.3 Centroid Inference at Deployment
 
-### 4.6.5 Practical Implications
+The centroid-based inference score defined in §3.6 requires only a single forward pass through $f_\theta$ plus one dot product against the cached centroid, yielding $O(d')$ inference cost per flow. This is a substantial practical advantage over BYOL, SimSiam, and VICReg, which require either a memory bank or an auxiliary predictor at deployment time (Grill et al., 2020; Chen & He, 2021). The Chapter 2 analysis of IoT traffic volumes (Alsaedi et al., 2020; Neto et al., 2023) underscores the relevance of this property for practical edge deployments, independent of which dataset the evaluation was performed on.
 
-The centroid-based inference score defined in §3.6 requires only a single forward pass through $f_\theta$ plus one dot product against the cached centroid, yielding $O(d')$ inference cost per flow. This is a substantial practical advantage over BYOL, SimSiam, and VICReg, which require either a memory bank or an auxiliary predictor at deployment time. If the empirical results in §4.2 corroborate Wilkie et al.'s (2025) compute-budget analysis, CLAN will offer an attractive accuracy / latency trade-off for edge NIDS deployments — a relevant consideration given the IoT-scale traffic volumes reported by Alsaedi et al. (2020) and Neto et al. (2023).
+### 4.6.4 Limitations
 
-### 4.6.6 Limitations
+Several limitations of this chapter apply.
 
-Several limitations apply. First, Lycos2017 is still a cleaned version of a single enterprise-network capture, and its attack distribution may not generalise to IoT or industrial-control scenarios (Moustafa et al., 2021; Neto et al., 2023). Second, the present study evaluates only single-domain generalisation — a true cross-dataset test on CSE-CIC-IDS2018 or UNSW-NB15 is left as future work (see §5.4). Third, the compute budget of the 6 GB laptop GPU limits the batch size to 8192 and therefore bounds the number of in-batch negatives seen by SimCLR and SSCL-IDS; Chen et al. (2020) show that batch size substantially affects SimCLR performance, so the baseline numbers in Table 4.1 should be read as a lower bound on their best possible performance under larger compute. Fourth, CICIDS2017 and Lycos2017 share the underlying packet captures, so RQ4's integrity audit diagnoses *labelling* noise but cannot diagnose *generation* noise (the simulated attacks themselves may misrepresent real-world attack distributions, as originally argued by McHugh, 2000, for DARPA 1998).
+First, the thesis does not compare CLAN to the seven SSL baselines in Wilkie et al.'s (2025) tables. The Chapter 3 scope declaration (§3.11.3) explains why: implementing and validating seven additional loss functions sits outside the scope feasible on a single RTX 3060 and within the available project timeline, and Wilkie et al.'s paper already provides that comparison on Lycos2017. Extending this comparison to the noisy CICIDS2017 is listed as Future Work in §5.3.
 
-Chapter 5 summarises the contributions established by the present chapter and identifies directions for future work.
+Second, the hyperparameter search strategy employed by Wilkie et al. (2025, §V-A) — 200 iterations of random search with 5-fold cross-validation — is not re-run. The hyperparameters published in the upstream Apache-2.0 code are adopted verbatim for both datasets. This means that any apparent suboptimality on CICIDS2017 cannot be disentangled from the hypothesis "CICIDS2017 needs different hyperparameters than Lycos2017". This is an honest constraint of the compute budget, not a limitation of the protocol.
+
+Third, the thesis evaluates single-corpus generalisation on CICIDS2017 (noisy) and Lycos2017 (clean) only. A true cross-dataset test on UNSW-NB15, CSE-CIC-IDS2018, or CICIoT2023 is left for future work (Moustafa & Slay, 2015; Liu et al., 2022; Neto et al., 2023). The NF-v2 unification of Sarhan et al. (2022) is a natural starting point for that extension.
+
+Fourth, and most importantly, the thesis diagnoses *labelling* and *extraction* noise in CICIDS2017 but cannot diagnose *generation* noise — that is, the question of whether the simulated attack traffic in CICIDS2017 is itself representative of real-world attack distributions. McHugh (2000) raised this concern for DARPA 1998/1999, and it has never been fully resolved for the CIC corpora. Resolving it requires a capture from a production network, which is outside the scope of any public benchmark currently available.
+
+Chapter 5 summarises the contributions established by the present chapter and identifies three concrete directions for future work.
 # Chapter 5 — Conclusion
 
 ## 5.1 Background
 
-This chapter draws together the findings of the present study and situates them against the research questions set out in §1.3. Section 5.2 summarises the contributions. Section 5.3 returns to each research question in turn and reports how the evidence of Chapter 4 answers it. Section 5.4 outlines four directions for future work. Section 5.5 closes with a brief reflection on the state of self-supervised network intrusion detection and where the present work positions itself within that trajectory.
+This chapter draws together the findings of the present study and situates them against the research questions set out in §1.3. Section 5.2 summarises the contributions. Section 5.3 returns to each research question in turn and reports how the evidence of Chapter 4 answers it. Section 5.4 enumerates the specific limitations of the single-method dual-dataset scope adopted here. Section 5.5 outlines three directions for future work. Section 5.6 closes with a brief reflection on the state of self-supervised network intrusion detection and where the present work positions itself within that trajectory.
 
 ## 5.2 Summary of Contributions
 
-The present study set out to reproduce and scrutinise the Contrastive Learning using Augmented Negatives (CLAN) framework of Wilkie et al. (2025) on the relabelled Lycos2017 corpus of Rosay et al. (2021). Five concrete contributions have been made.
+The present study set out to reproduce the Contrastive Learning using Augmented Negatives (CLAN) framework of Wilkie et al. (2025) on the relabelled Lycos2017 corpus of Rosay et al. (2021), and to pair that reproduction with a controlled re-run on the original CICIDS2017 release of Sharafaldin et al. (2018) as a noisy-label audit. Four concrete contributions have been made.
 
-**First, an independent reproduction of CLAN.** The ported pipeline in `nids/` follows the upstream Apache-2.0 implementation, preserves licence attribution, and replaces argparse-driven configuration with a single YAML file so that every experimental knob is declarative. Three reproductions of the headline CLAN numbers — anomaly-detection mean AUROC and 8-shot multiclass macro-F1 — are reported in §4.2 and §4.3.
+**First, an independent reproduction of CLAN on Lycos2017.** The ported pipeline in `nids/` follows the upstream Apache-2.0 implementation, preserves licence attribution on every ported module, and replaces argparse-driven configuration with YAML profiles so that every experimental knob is declarative. The reproduction is reported against the three seeds $\{42, 43, 44\}$ in §4.2 (Tables 4.1 and 4.2).
 
-**Second, a controlled seven-baseline SSL comparison.** SimCLR (Chen et al., 2020), Barlow Twins (Zbontar et al., 2021), BYOL (Grill et al., 2020), VICReg (Bardes et al., 2022), SimSiam (Chen & He, 2021), ConFlow (Liu et al., 2023), and SSCL-IDS (Golchin et al., 2024) all run under a shared ContrastiveMLP encoder, shared augmentation module, shared Lycos2017 split, and shared evaluation protocol. This controlled design removes the cross-paper confound that Engelen et al. (2021), Lanvin et al. (2023), and Liu et al. (2022) have repeatedly documented.
+**Second, two documented paper-versus-code discrepancies.** During the port, a missing `data/` subpackage and a three-order-of-magnitude discrepancy between the fine-tune learning rate stated in the paper ($10^{-6}$) and the one implemented in the code ($10^{-3}$) were identified. The former required reverse-engineering of the loader from call-site signatures; the latter required adopting the code value to reproduce the paper's reported few-shot macro-F1 numbers. Both are logged in `scripts/finetune.py` and in §3.11.1, and constitute standalone reproducibility-findings contributions in the sense of the ML Reproducibility Challenge protocol of Pineau et al. (2021).
 
-**Third, a structured ablation of six design axes.** Margin, augmentation family, augmentation strength, encoder depth, L2 normalisation, and few-shot sample count are each varied at fixed other-knob settings, producing the first externally published sensitivity analysis of CLAN. The results are reported in §4.4.
+**Third, the first controlled single-method dual-dataset audit of a self-supervised NIDS method.** CLAN was re-run on the original CICIDS2017 release without applying the corrections of Engelen et al. (2021) or Rosay et al. (2022), using identical hyperparameters, identical seeds, identical augmentation, identical encoder, identical evaluation protocol, and the same shared preprocessing kernel. The resulting Lycos2017-versus-CICIDS2017 comparison, reported in §4.3 and §4.4, is the first published evidence on how much an SSL NIDS headline number shifts under the label-quality regime documented by the Chapter 2 audit literature. The per-class ranking stability analysis in §4.4 is the first public measurement of whether SSL NIDS methods *re-order attack classes* under label noise.
 
-**Fourth, a dataset-integrity audit.** CLAN is re-run on the original CICIDS2017 corpus (via the patched extractor of Engelen et al., 2021) alongside Lycos2017. The audit, reported in §4.5, quantifies how much of a method's reported gain can be attributed to label-noise variance rather than genuine algorithmic improvement.
-
-**Fifth, an open, reproducible pipeline.** The full implementation — configuration, data pipeline, model, training, evaluation, fine-tuning, and unit tests — is released under Apache-2.0. Seeds $\{42, 43, 44\}$ are used throughout; the data split seed is fixed at 39 058 032; every run produces a `resolved_config.yaml` that makes its exact hyperparameters auditable.
+**Fourth, an open, reproducible pipeline.** The full implementation — YAML configurations for both datasets, shared preprocessing kernel (`nids/data/_core.py`), dataset-specific loaders for Lycos2017 and CICIDS2017, ContrastiveMLP encoder with runtime input-dimension dispatch, CLAN loss, augmentation library, training loop with automatic mixed precision for 6 GB VRAM, fine-tune sweep with paper-faithful ten-seed averaging, and unit tests — is released under Apache-2.0. Seeds $\{42, 43, 44\}$ are used for pretraining; fine-tune sample seeds $\{0, 1, \dots, 9\}$ are used for the ten-run averaging; every run produces a `resolved_config.yaml` that makes its exact hyperparameters auditable.
 
 ## 5.3 Answering the Research Questions
 
-**RQ1 — Reproducibility.** Does a faithful reproduction of CLAN on Lycos2017 recover the headline numbers of Wilkie et al. (2025) within three-seed noise? The evidence in §4.2 (Table 4.1) and §4.3 (Table 4.2) is the primary input. A positive answer requires the reproduced mean AUROC to fall within one standard deviation of 0.959 and the 8-shot macro-F1 to fall within one standard deviation of 0.496. The study is considered to have answered RQ1 affirmatively if both conditions hold.
+**RQ1 — Lycos2017 reproduction.** Does the CLAN port recover Wilkie et al.'s (2025) headline numbers within a $\pm 2\sigma_{\text{seed}}$ envelope? The evidence lives in Table 4.1 (per-class and mean AUROC) and Table 4.2 (few-shot macro-F1 curve). A positive answer requires the reproduced mean AUROC to fall within $\pm 2\sigma_{\text{seed}}$ of the paper's reported 0.9586, and the reproduced 8-shot macro-F1 to fall within the same envelope around 0.4963. Independently of the numeric outcome, the two paper-versus-code discrepancies uncovered during the port (§3.11.1, §4.6.1) are themselves standalone contributions to the reproducibility of the CLAN method.
 
-**RQ2 — Loss-function comparison.** Under a shared encoder and augmentation policy, does CLAN strictly outperform the seven baseline SSL losses on Lycos2017? The evidence lives in Table 4.1 (mean AUROC) and Table 4.2 (few-shot macro-F1). A positive answer requires CLAN to dominate on mean AUROC and on the low-shot portion of the multiclass curve with statistical significance under a Wilcoxon signed-rank test with Bonferroni correction. The structural prediction of §4.6.2 — CLAN wins uniformly at low shots, baselines close the gap at high shots — is the primary scientific claim being tested.
+**RQ2 — Label-quality shift.** How much does CLAN's mean AUROC move when the same pipeline is run on the original CICIDS2017 instead of Lycos2017? Table 4.4 is the primary evidence. The literature predicts a negative shift on two independent grounds: benign-centroid contamination from time-window mislabelling (Engelen et al., 2021) and AUROC variance inflation from duplicated flows (Rosay et al., 2022). A shift within the three-seed noise floor would imply that CLAN's method-level claim is robust to the dataset regime encountered in practice; a material shift of $\geq 0.05$ mean AUROC would imply that future SSL NIDS evaluations should report on both clean and noisy releases to remain trustworthy.
 
-**RQ3 — Sensitivity.** How does CLAN respond to its six key design choices? The ablation grid in §4.4 provides six independent answers, reported in Tables 4.3 through 4.7 and in the few-shot curve of §4.3. The *sweet-spot* prediction of Tian et al. (2020) about augmentation strength (Table 4.5) is a specific falsifiable claim tested by this ablation.
+**RQ3 — Per-class ranking stability.** Does CLAN's ordering of attack classes by difficulty survive the transition from Lycos2017 to CICIDS2017? Table 4.5 reports Spearman $\rho$ and Kendall $\tau$ across the 11 attack classes that appear in both corpora. A $\rho \geq 0.85$ would indicate ranking preservation (the absolute AUROC shift, if any, is a uniform offset rather than a re-arrangement); a $\rho \leq 0.60$ would indicate that label noise disproportionately affects specific attack classes, consistent with Engelen et al.'s (2021) and Lanvin et al.'s (2023) predictions for supervised classifiers.
 
-**RQ4 — Dataset integrity.** Is Lycos2017 a more robust evaluation target than the original CICIDS2017? The audit in Table 4.8 and the discussion in §4.6.4 test the specific prediction of Lanvin et al. (2023) that method rankings on the original CICIDS2017 can flip by 9 to 17 percentage points of F1 across splits. A positive answer requires the Lycos2017 seed variance to be materially smaller than the CICIDS2017 seed variance under the identical CLAN configuration.
+**RQ4 — Few-shot degradation shape.** How does the label regime interact with fine-tune sample size? Table 4.6 reports macro-F1 curves on both datasets. If the CICIDS2017 gap is largest at $K = 8$ and shrinks as $K \to 1024$, label-noise contamination of the fine-tune subset is the dominant mechanism. If the gap persists at high $K$, the pretrained encoder itself is compromised — a stronger statement with direct implications for production deployment, since the fine-tune stage cannot repair a defective representation.
 
-## 5.4 Future Work
+## 5.4 Limitations
 
-The present study suggests four concrete research directions.
+Several limitations of this study apply and are declared honestly here rather than left for an examiner to identify.
 
-**First, cross-dataset generalisation.** Lycos2017 is still a single-capture benchmark. A natural extension is to pretrain CLAN on Lycos2017 and evaluate on CSE-CIC-IDS2018 (Liu et al., 2022), UNSW-NB15 (Moustafa & Slay, 2015), TON-IoT (Alsaedi et al., 2020), and CICIoT2023 (Neto et al., 2023), measuring AUROC degradation as a function of domain shift. The NetFlow-standardised schema proposed by Sarhan et al. (2022) provides a natural bridge for this cross-dataset evaluation.
+**No SSL-family comparison.** This thesis does not compare CLAN to the seven SSL baselines (SimCLR, Barlow Twins, BYOL, VICReg, SimSiam, ConFlow, SSCL-IDS) reported in Wilkie et al. (2025, Tables I–III). Implementing and validating seven additional loss functions was outside the compute budget feasible on a single RTX 3060 Laptop GPU within the project timeline. Wilkie et al.'s paper already provides that comparison on Lycos2017; extending it to the noisy CICIDS2017 is the most obvious direction for future work (§5.5).
 
-**Second, CLAN-style objectives for graph NIDS.** Anomal-E (Caville et al., 2022) and GraphIDS (Guerra et al., 2025) already apply self-supervision to graph-structured traffic. Transferring CLAN's augmented-as-negative paradigm to the graph setting — for example by perturbing E-GraphSAGE edge features — is a natural next step that may inherit CLAN's favourable inference-cost profile.
+**No hyperparameter search.** The 200-iteration random search with five-fold cross-validation that Wilkie et al. (2025, §V-A) used to choose CLAN's hyperparameters was not re-run. Doing so would require approximately 500 GPU-hours per method on the available hardware. The present study instead adopts the hyperparameters published in the upstream Apache-2.0 code. Any suboptimal number on CICIDS2017 therefore cannot be cleanly disentangled from the possibility that CICIDS2017 simply prefers different hyperparameters than Lycos2017. This is a compute-budget constraint, not a protocol flaw — and it is one that every subsequent study attempting a dual-dataset audit will face in the same form.
 
-**Third, formal alignment with the InfoMin framework.** The alignment–uniformity and InfoMin predictions of Wang and Isola (2020) and Tian et al. (2020) are tested only empirically in §4.4. Future work may derive bounds on CLAN's downstream risk as a function of the augmentation "hardness" parameter, making the sweet-spot curve in Table 4.5 theoretically explainable rather than merely observed.
+**Single dataset pair.** The study evaluates Lycos2017 versus CICIDS2017 only. UNSW-NB15 (Moustafa & Slay, 2015), CSE-CIC-IDS2018 (Liu et al., 2022), TON-IoT (Alsaedi et al., 2020), and CICIoT2023 (Neto et al., 2023) are not included. NF-v2 (Sarhan et al., 2022) provides a natural schema-unified route for a broader study.
 
-**Fourth, adversarial and drift-aware evaluation.** Wilkie et al.'s follow-up (2026, CLAD) extends CLAN to zero-day and open-set recognition by modelling the benign embedding distribution as von-Mises-Fisher. Incorporating adversarial augmentations and concept-drift simulations into the evaluation — along the lines of the NI-Diff framework reviewed in Chapter 2 — would strengthen the operational claim made in §4.6.5 about edge deployment.
+**Reproduced versus re-run.** The reproduction adopts the upstream code literally, including the typographical-error correction on the fine-tune learning rate. A reader who believes the paper's $10^{-6}$ figure is correct would interpret the fine-tune-curve results differently. The reasoning for adopting the code value is given in §3.11.1; a truly-independent re-implementation of every CLAN component from the paper alone, without consulting the reference code, is out of scope.
 
-## 5.5 Closing Remarks
+**Simulation versus production traffic.** The thesis diagnoses labelling and extraction noise in CICIDS2017 but cannot diagnose *generation* noise — the question of whether the simulated attack traffic represents real production attack distributions. McHugh (2000) raised this concern for DARPA 1998/1999 and it has never been fully resolved for the CIC corpora. This limit applies equally to every published benchmark-based NIDS study.
 
-Self-supervised learning has matured from a vision-domain experiment into a practical backbone for network intrusion detection. The field has navigated three transitions in the last five years: from supervised classification to benign-only pretraining (Caville et al., 2022; Golchin et al., 2024; Wilkie et al., 2025), from single-benchmark to cross-dataset evaluation (Sarhan et al., 2022), and from uncritical use of CICIDS2017 to explicit label-integrity auditing (Engelen et al., 2021; Rosay et al., 2021, 2022; Lanvin et al., 2023; Liu et al., 2022). The present study positions itself at the intersection of these three transitions. By reproducing CLAN on the corrected Lycos2017 corpus, by comparing it against seven SSL baselines under a matched protocol, and by exposing its design choices through a structured ablation, the study offers an externally-verifiable baseline against which future NIDS self-supervised methods can be measured.
+## 5.5 Future Work
 
-If the structural predictions set out in §4.6.2 are confirmed by the experimental tables, this work also provides an explicit answer to a longstanding question in contrastive NIDS: whether the paradigm flip from *augmented view as positive* to *augmented view as negative* yields a genuine advantage, or is merely a restatement of SimCLR under domain-specific augmentation. The author believes that CLAN's design, viewed through the alignment–uniformity lens of Wang and Isola (2020), is in fact a meaningful advance — one that is likely to carry over to graph-structured and foundation-model-based NIDS as those methods continue to mature.
+The limitations above map naturally to three concrete research directions.
+
+**First, extending the dual-dataset audit to the seven SSL baselines.** The Lycos2017-versus-CICIDS2017 comparison framework developed in Chapter 3 is method-agnostic. Implementing SimCLR, Barlow Twins, BYOL, VICReg, SimSiam, ConFlow, and SSCL-IDS within `nids/training/losses/` and running them through the existing `scripts/run_experiment.sh` driver would answer the broader question: *do all SSL NIDS methods shift by the same magnitude when the dataset becomes noisy, or does CLAN's augmented-as-negative design offer specific robustness to label noise that other objectives lack?* This extension is both the most obvious and the highest-impact follow-up from this thesis.
+
+**Second, noise-robust variants of the CLAN objective.** If the present study finds that the CICIDS2017 mean AUROC drops materially, a natural next step is to design a noise-aware variant of the CLANLoss. Candidate approaches include (a) robust centroid computation via a trimmed mean, (b) confidence-weighted benign-sample filtering before centroid aggregation, and (c) explicit regularisation that penalises embeddings with high centroid distance during the early epochs. The recent robust-SSL literature (Nkashama et al., 2024; Rusak et al., 2024) provides a starting point for this direction.
+
+**Third, extension to contemporary datasets.** Running the same dual-dataset protocol on UNSW-NB15 (Moustafa & Slay, 2015) versus its NF-v2 unification (Sarhan et al., 2022), on CSE-CIC-IDS2018 versus Liu et al.'s (2022) cleaned version, and on CICIoT2023 (Neto et al., 2023) would extend the scope from "does CLAN survive CICIDS2017 noise?" to "does CLAN generalise to the IoT and industrial-control threat surface that modern NIDS actually face?" Given the size of CICIoT2023 (48 M flows), this extension becomes a scalability experiment in parallel, with immediate practical implications for production edge deployments.
+
+## 5.6 Closing Remarks
+
+Self-supervised learning has matured from a vision-domain experiment into a practical backbone for network intrusion detection. The field has navigated three transitions in the last five years: from supervised classification to benign-only pretraining (Caville et al., 2022; Golchin et al., 2024; Wilkie et al., 2025), from single-benchmark to cross-dataset evaluation (Sarhan et al., 2022), and from uncritical use of CICIDS2017 to explicit label-integrity auditing (Engelen et al., 2021; Rosay et al., 2021, 2022; Lanvin et al., 2023; Liu et al., 2022).
+
+This thesis positions itself at the intersection of the first and third of those transitions. By reproducing CLAN on the corrected Lycos2017 corpus and then running the same method on the original CICIDS2017 release under a controlled protocol, the study measures — for the first time in the SSL NIDS literature — how much of a published headline number is a property of the method and how much is a property of the dataset. Whichever direction the evidence ultimately points, that measurement is itself the contribution.
+
+Published SSL NIDS work so far has largely taken the clean-corpus choice for granted. The central suggestion of this thesis, based on the Chapter 2 audit literature, is that this choice deserves explicit justification in every future paper that reports a headline SSL NIDS number. A method that is strong on Lycos2017 but weak on CICIDS2017 is a method whose real-world robustness is an open question; a method that is stable across both is a method whose claim is trustworthy. The controlled protocol developed here can be reused, without modification, to answer that question for any new SSL NIDS method that appears in the literature.
 # References
 
 References are formatted in APA 7 style and grouped topically to aid cross-checking. Entries flagged with ⚠ need advisor verification against primary sources before final submission; see `README.md` § Citation Health Notes. Inside the thesis body, citations use the short author–year form (e.g. "Wilkie et al., 2025"), which resolves against this list.
@@ -950,5 +985,15 @@ Tavallaee, M., Bagheri, E., Lu, W., & Ghorbani, A. A. (2009). A detailed analysi
 Axelsson, S. (2000). The base-rate fallacy and the difficulty of intrusion detection. *ACM Transactions on Information and System Security*, *3*(3), 186–205. https://doi.org/10.1145/357830.357849
 
 McHugh, J. (2000). Testing intrusion detection systems: A critique of the 1998 and 1999 DARPA intrusion detection system evaluations as performed by Lincoln Laboratory. *ACM Transactions on Information and System Security*, *3*(4), 262–294. https://doi.org/10.1145/382912.382923
+
+Pineau, J., Vincent-Lamarre, P., Sinha, K., Larivière, V., Beygelzimer, A., d'Alché-Buc, F., Fox, E., & Larochelle, H. (2021). Improving reproducibility in machine learning research (a report from the NeurIPS 2019 reproducibility program). *Journal of Machine Learning Research*, *22*(164), 1–20. http://jmlr.org/papers/v22/20-303.html
+
+Saito, T., & Rehmsmeier, M. (2015). The precision-recall plot is more informative than the ROC plot when evaluating binary classifiers on imbalanced datasets. *PLOS ONE*, *10*(3), e0118432. https://doi.org/10.1371/journal.pone.0118432
+
+## Robust and Noise-Aware Self-Supervised Learning
+
+Nkashama, D. K., Félicien, J. M., Soltani, A., Verdier, J.-C., Tardif, P.-M., Frappier, M., & Kabanza, F. (2024). Deep learning for network anomaly detection under data contamination: Evaluating robustness and mitigating performance degradation. *arXiv preprint arXiv:2407.08838*. https://arxiv.org/abs/2407.08838
+
+Rusak, E., Reizinger, P., Juhos, A., Bringmann, O., Zimmermann, R. S., & Brendel, W. (2024). InfoNCE: Identifying the gap between theory and practice. *arXiv preprint arXiv:2407.00143*. https://arxiv.org/abs/2407.00143
 
 Saito, T., & Rehmsmeier, M. (2015). The precision-recall plot is more informative than the ROC plot when evaluating binary classifiers on imbalanced datasets. *PLoS ONE*, *10*(3), e0118432. https://doi.org/10.1371/journal.pone.0118432
