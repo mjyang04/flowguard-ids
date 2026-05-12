@@ -123,7 +123,13 @@ def _read_csv_autoenc(handle) -> pd.DataFrame:
 
 def _read_one(path: Path) -> pd.DataFrame:
     """Read a single CICIDS2017 CSV, whether zipped or extracted."""
-    if path.suffix == ".zip":
+    if path.suffix.lower() == ".zip":
+        if not zipfile.is_zipfile(path):
+            raise ValueError(
+                f"{path} has a .zip suffix but is not a valid zip archive. "
+                "If your CICIDS2017 files are extracted CSVs, point "
+                "data.csv_path or --cicids-source at the CSV directory."
+            )
         with zipfile.ZipFile(path) as zf:
             members = [n for n in zf.namelist() if n.lower().endswith(".csv")]
             if not members:
@@ -139,7 +145,7 @@ def _read_one(path: Path) -> pd.DataFrame:
 def load_cicids_dataframe(
     source: str | Path,
     *,
-    glob_pattern: str = "*.pcap_ISCX.zip",
+    glob_pattern: str = "*.pcap_ISCX.csv",
 ) -> pd.DataFrame:
     """Read and concatenate every CICIDS2017 day CSV/zip under ``source``.
 
@@ -154,7 +160,9 @@ def load_cicids_dataframe(
     elif path.is_dir():
         files = sorted(path.glob(glob_pattern))
         if not files:
-            files = sorted(path.glob("*.csv")) + sorted(path.glob("*.zip"))
+            files = sorted(path.glob("*.csv"))
+        if not files:
+            files = sorted(path.glob("*.zip"))
         if not files:
             raise FileNotFoundError(
                 f"No CICIDS2017 CSV or zip files found under {path}"

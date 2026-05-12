@@ -65,8 +65,8 @@ pip install -e .
 # 2. Place datasets
 # Lycos2017 CSV:
 #   data/raw/lycos.csv
-# CICIDS2017 raw CSV/zip directory:
-#   data/raw/lycos-ids2017/cicids2017/csv_files
+# CICIDS2017 extracted CSV directory:
+#   data/raw/cicids2017
 
 # 3. Local tests
 pytest -q
@@ -85,7 +85,7 @@ python scripts/run_experiment.py --datasets both
 python scripts/run_experiment.py --datasets both --skip-existing
 
 # If datasets are stored outside this repo, override the paths here
-python scripts/run_experiment.py --datasets both --lycos-csv "E:\datasets\lycos.csv" --cicids-source "E:\datasets\cicids2017\csv_files"
+python scripts/run_experiment.py --datasets both --lycos-csv "E:\datasets\lycos.csv" --cicids-source "E:\datasets\cicids2017"
 ```
 
 ## Configuration

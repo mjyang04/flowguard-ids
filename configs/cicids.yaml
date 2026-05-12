@@ -2,7 +2,7 @@
 
 data:
   dataset: cicids2017
-  csv_path: data/raw/lycos-ids2017/cicids2017/csv_files
+  csv_path: data/raw/cicids2017
   drop_cols:
     - flow_id
     - source_ip

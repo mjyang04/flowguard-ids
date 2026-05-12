@@ -7,7 +7,7 @@ Examples:
     # Same run, but the datasets live outside the repository.
     python scripts/run_experiment.py --datasets both \
         --lycos-csv "E:\\datasets\\lycos.csv" \
-        --cicids-source "E:\\datasets\\cicids2017\\csv_files"
+        --cicids-source "E:\\datasets\\cicids2017"
 
     # Resume an interrupted full run without redoing completed outputs.
     python scripts/run_experiment.py --datasets both --skip-existing

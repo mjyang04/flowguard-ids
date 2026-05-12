@@ -100,6 +100,19 @@ def test_load_cicids_dataframe_normalises_columns(tmp_path: Path) -> None:
     assert set(df["label"].unique()) == {"benign", "web_attack_brute_force"}
 
 
+def test_load_cicids_dataframe_prefers_extracted_csvs(tmp_path: Path) -> None:
+    csv = tmp_path / "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv"
+    _write_synthetic_cicids_csv(csv)
+    (tmp_path / "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.zip").write_text(
+        "not a zip",
+        encoding="utf-8",
+    )
+    df = load_cicids_dataframe(tmp_path)
+
+    assert "label" in df.columns
+    assert set(df["label"].unique()) == {"benign", "web_attack_brute_force"}
+
+
 def test_get_data_cicids_returns_datasplits(tmp_path: Path) -> None:
     csv = tmp_path / "cic.csv"
     _write_synthetic_cicids_csv(csv)
