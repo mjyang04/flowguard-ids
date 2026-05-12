@@ -39,6 +39,20 @@ DATASET_ALIASES = {
 }
 
 
+class StageFailure(RuntimeError):
+    """Raised when one child training/evaluation command fails."""
+
+    def __init__(self, cmd: list[str], log_path: Path, returncode: int) -> None:
+        self.cmd = cmd
+        self.log_path = log_path
+        self.returncode = returncode
+        printable = " ".join(cmd)
+        super().__init__(
+            f"Command failed with exit code {returncode}: {printable}\n"
+            f"See log: {log_path}"
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser("Run CLAN experiments across datasets/seeds")
     parser.add_argument(
@@ -139,6 +153,13 @@ def command_for_stage(python: str, config: Path, seed: int, stage: str) -> list[
     raise ValueError(f"Unknown stage: {stage}")
 
 
+def tail_text(path: Path, lines: int = 60) -> str:
+    if not path.exists():
+        return ""
+    content = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return "\n".join(content[-lines:])
+
+
 def run_command(cmd: list[str], log_path: Path, *, dry_run: bool) -> None:
     printable = " ".join(cmd)
     if dry_run:
@@ -159,7 +180,7 @@ def run_command(cmd: list[str], log_path: Path, *, dry_run: bool) -> None:
             check=False,
         )
     if proc.returncode != 0:
-        raise RuntimeError(f"Command failed with exit code {proc.returncode}: {printable}")
+        raise StageFailure(cmd, log_path, proc.returncode)
 
 
 def run_seed_pipeline(
@@ -199,6 +220,20 @@ def run_dataset(args: argparse.Namespace, dataset: str) -> None:
         print("[warn] Parallel seeds launch independent Python processes.")
         print("[warn] On one 6 GB GPU, this may hit CUDA out-of-memory.")
 
+    if max_workers == 1:
+        for seed in args.seeds:
+            run_seed_pipeline(
+                dataset=dataset,
+                config=config,
+                seed=seed,
+                stages=args.stages,
+                python=args.python,
+                log_dir=log_dir,
+                skip_existing=args.skip_existing,
+                dry_run=args.dry_run,
+            )
+        return
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = [
             pool.submit(
@@ -221,8 +256,17 @@ def run_dataset(args: argparse.Namespace, dataset: str) -> None:
 def main() -> None:
     args = parse_args()
     datasets = DATASET_ALIASES[args.datasets]
-    for dataset in datasets:
-        run_dataset(args, dataset)
+    try:
+        for dataset in datasets:
+            run_dataset(args, dataset)
+    except StageFailure as exc:
+        print(f"\n[failed] {exc}", file=sys.stderr)
+        tail = tail_text(exc.log_path)
+        if tail:
+            print("\n==== log tail ====", file=sys.stderr)
+            print(tail, file=sys.stderr)
+            print("==== end log tail ====", file=sys.stderr)
+        sys.exit(exc.returncode)
     print("\nAll requested runs complete.")
 
 
