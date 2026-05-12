@@ -31,8 +31,6 @@ if [[ "$mode" == "both" || "$mode" == "--docx" ]]; then
   echo "[compile] invoking pandoc with FYP reference template"
   pandoc "${chapters[@]}" \
     --reference-doc="FYP Thesis Template  042025 v2.docx" \
-    --toc \
-    --toc-depth=2 \
     -o thesis.docx
   echo "[compile] thesis.docx -> $(ls -la thesis.docx | awk '{print $5}') bytes"
 fi

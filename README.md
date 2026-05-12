@@ -1,118 +1,150 @@
 # FlowGuard IDS
 
-Graduation-design research project: **reproduce CLAN on Lycos2017 and compare against 7 self-supervised NIDS baselines**.
+Graduation-design research project: **reproduce CLAN on Lycos2017 and run a
+controlled Lycos2017-vs-CICIDS2017 dataset-integrity audit**.
 
-- **Paper**: Wilkie et al., *"CLAN: Contrastive Self-Supervised NIDS Using Augmented Negative Pairs"*, IEEE CSR 2025.
+- **Paper**: Wilkie et al., *"CLAN: Contrastive Self-Supervised NIDS Using
+  Augmented Negative Pairs"*, IEEE CSR 2025.
 - **Upstream code**: https://github.com/jackwilkie/CLAN (Apache-2.0).
-- **Dataset**: [Lycos2017](https://lycos-ids.univ-lemans.fr) — a relabelled CICIDS2017 that fixes the labelling issues documented by Engelen et al. (WTMC 2021) and Rosay et al. (2023).
+- **Main dataset**: [Lycos2017](https://lycos-ids.univ-lemans.fr), a relabelled
+  CICIDS2017 that fixes the labelling issues documented by Engelen et al. and
+  Rosay et al.
+- **Control dataset**: original CICIDS2017, intentionally consumed without
+  relabelling so the noisy-release effect can be measured.
 
-> **Status (2026-04-23)**: repository reset from the previous CNN-BiLSTM-SE-Transformer / SHAP / XI2S-cascade direction. Only reusable infrastructure (config, metrics, logging, I/O, reproducibility) remains. CLAN porting happens in the next session. See `CLAUDE.md` for the detailed porting plan.
+## Thesis Scope
 
-## Thesis Story
+The final thesis scope is intentionally narrow enough to finish:
 
-1. **Main method**: faithful CLAN reproduction (CLDNN encoder + `CLANLoss` + L2-normalized benign embeddings).
-2. **Comparison table**: CLAN vs SimCLR / Barlow Twins / BYOL / VICReg / SimSiam / ConFlow / SSCL-IDS under the same encoder, dataset, and augmentation pipeline.
-3. **Ablation**: CLAN's margin `m`, augmentation type, augmentation strength, encoder depth, few-shot sample count, L2-normalization on/off.
-4. **Downstream few-shot multiclass**: sweep shots-per-class ∈ {8, 16, 32, 64, 128, 256, 512, 1024}.
+1. **Main method**: faithful CLAN reproduction with the upstream
+   `ContrastiveMLP` encoder, `CLANLoss`, uniform-resample augmentation, and
+   centroid-based anomaly score.
+2. **Dataset audit**: run the same CLAN pipeline on Lycos2017 and original
+   CICIDS2017 with matched seeds and hyperparameters.
+3. **Few-shot curve**: sweep shots per class over
+   `{8, 16, 32, 64, 128, 256, 512, 1024}`.
+4. **Future work**: the seven SSL baselines from the CLAN paper
+   (SimCLR, Barlow Twins, BYOL, VICReg, SimSiam, ConFlow, SSCL-IDS) are discussed
+   in the literature review but are **not implemented** in this thesis.
+
+The scripts intentionally expose CLAN only; baseline losses are not selectable
+from config or CLI.
 
 ## Repository Layout
 
 ```text
 flowguard-ids/
-├── configs/default.yaml           # Single config: data + model + loss + aug + training + finetune + runtime
-├── nids/                          # Package (installed via setup.py)
-│   ├── config.py                  # Frozen-dataclass config + YAML loader
-│   ├── data/                      # [stub] Lycos2017Dataset + DataLoader (to be filled)
-│   ├── models/                    # [stub] CLDNN encoder + ablation variants (to be filled)
-│   ├── training/                  # [stub] CLANLoss + 7 SSL baseline losses + Trainer (to be filled)
-│   ├── evaluation/
-│   │   ├── metrics.py             # compute_nids_metrics (AUC/PR-AUC/F1/MCC/ECE/FAR-recall)
-│   │   └── latency.py             # Inference latency benchmarking
-│   └── utils/                     # logging, I/O, reproducibility
-├── tests/
-│   ├── conftest.py
-│   └── test_metrics.py            # 9 tests, pure numpy — passes without torch
-├── requirements.txt
-├── setup.py
-├── CLAUDE.md                      # Internal project instructions (loaded into Claude sessions)
-└── README.md                      # This file
+├── configs/
+│   ├── default.yaml       # Base CLAN config
+│   ├── lycos.yaml         # Lycos2017 dataset profile
+│   └── cicids.yaml        # CICIDS2017 noisy-control profile
+├── nids/
+│   ├── config.py          # Frozen-dataclass config + YAML loader
+│   ├── data/              # Lycos/CICIDS loaders, split logic, DataLoader
+│   ├── models/            # ContrastiveMLP encoder
+│   ├── training/          # CLAN loss, augmentations, schedules, checkpoints
+│   ├── evaluation/        # NIDS metrics + CLAN centroid/AUROC helpers
+│   └── utils/             # logging, I/O, reproducibility
+├── scripts/
+│   ├── train.py           # CLAN pretraining
+│   ├── eval.py            # Centroid-based AUROC evaluation
+│   ├── finetune.py        # Single few-shot fine-tune run
+│   ├── finetune_sweep.py  # Paper-style few-shot sweep
+│   └── run_experiment.sh  # Lycos/CICIDS driver
+├── tests/                 # Synthetic-fixture unit/contract tests
+└── docs/thesis/           # FYP thesis chapters and template
 ```
 
-Model / loss / data / training modules exist as import-stable empty packages; they are filled in the follow-up session by porting code from the upstream CLAN repo.
-
-## Quick Start (after CLAN port)
+## Quick Start
 
 ```bash
 # 1. Install
 pip install -e .
 
-# 2. Place the Lycos2017 dataset (one CSV or the preprocessed Drive bundle)
-#    at:  data/raw/lycos.csv
+# 2. Place datasets
+# Lycos2017 CSV:
+#   data/raw/lycos.csv
+# CICIDS2017 raw CSV/zip directory:
+#   data/raw/lycos-ids2017/cicids2017/csv_files
 
-# 3. Tests (pure numpy, no torch needed)
+# 3. Local tests
 pytest -q
 
-# 4. Train CLAN on Lycos2017 (command becomes available after scripts/ is ported)
-# python scripts/train.py --config configs/default.yaml
+# 4. Train and evaluate CLAN on Lycos2017
+python scripts/train.py --config configs/lycos.yaml --seed 42
+python scripts/eval.py --config configs/lycos.yaml --seed 42
 
-# 5. Run a head-to-head SSL baseline comparison
-# python scripts/train.py --config configs/default.yaml loss.name=simclr
-# python scripts/train.py --config configs/default.yaml loss.name=barlow_twins
-# ... (7 baselines)
+# 5. Run few-shot sweep
+python scripts/finetune_sweep.py --config configs/lycos.yaml --pretrain-seed 42
 
-# 6. Few-shot multiclass fine-tune
-# python scripts/finetune.py --config configs/default.yaml
+# 6. Full dual-dataset audit
+bash scripts/run_experiment.sh both
 ```
 
 ## Configuration
 
-Everything is driven by `configs/default.yaml`. Seven sections:
+Everything is YAML-driven. The main sections are:
 
 | Section | Purpose |
 |---|---|
-| `data` | Dataset path, batch size, splits, scaler, benign-label string |
-| `model` | CLDNN encoder hyperparameters (embedding dim, conv/LSTM shapes, L2-norm toggle) |
-| `loss` | Which SSL loss to use — `clan` by default; switch to one of 7 baselines for comparison |
-| `augmentation` | Augmentation strategy for negative views (Gaussian noise, feature dropout) |
-| `training` | Epochs, optimizer, scheduler, AMP, early stopping, selection metric |
-| `finetune` | Few-shot sweep schedule for downstream multiclass evaluation |
-| `runtime` | Output dir, seed, device |
+| `data` | Dataset selector/path, metadata drops, split seed, batch size |
+| `model` | ContrastiveMLP hidden widths, embedding dim, residual flag |
+| `loss` | CLAN loss `margin` and `loss_alpha` |
+| `augmentation` | Uniform-resample strength (`max_val`, `p_feature`) |
+| `training` | Pretraining epochs, learning rates, scheduler, AMP |
+| `finetune` | Few-shot schedule, fine-tune epochs/lr, sample-seed count |
+| `runtime` | Output directory, seed, device |
+
+Run artifacts are written to:
+
+```text
+artifacts/<dataset>/clan/seed<S>/
+```
+
+Raw data and artifacts are gitignored.
 
 ## Evaluation Metrics
 
-`nids.evaluation.metrics.compute_nids_metrics` (9 unit tests, pure numpy) computes:
+`nids.evaluation.metrics.compute_nids_metrics` computes:
 
-### Binary (requires `y_score`)
-- `pr_auc`, `roc_auc`, `ece`
-- `best_f1`, `best_f1_threshold`
-- `recall_at_far_1pct`, `recall_at_far_5pct`
+- Binary score metrics: `pr_auc`, `roc_auc`, `ece`, best-F1 threshold, and
+  recall under FAR constraints.
+- Multiclass metrics: accuracy, macro-F1, weighted-F1, MCC, per-class precision,
+  recall, F1, and confusion matrix.
 
-### Multiclass
-- `accuracy`, `macro_f1`, `weighted_f1`, `mcc`
-- `per_class_f1`, `per_class_recall`, `per_class_precision`
-- `confusion_matrix`
-
-### Shared
-- `avg_attack_recall`, `attack_macro_precision`, `benign_false_alarm_rate`, `attack_miss_rate`
+CLAN-specific helpers in `nids.evaluation.clan_metrics` compute centroid-based
+scores, mean AUROC, per-class AUROC, and supervised fine-tune metrics.
 
 ## Requirements
 
 - Python 3.10+
-- PyTorch 2.5+ (once CLAN is ported; current infrastructure does not require torch)
-- CUDA-capable GPU recommended (6 GB VRAM is enough — CLAN uses a lightweight CLDNN)
+- PyTorch 2.5+
+- CUDA-capable GPU recommended; the configs are tuned for an RTX 3060 Laptop GPU
+  with 6 GB VRAM using AMP and `batch_size=2048`.
 
-Install via `pip install -r requirements.txt` or `pip install -e .`.
+Install via:
+
+```bash
+pip install -r requirements.txt
+pip install -e .
+```
 
 ## Testing
 
 ```bash
 pytest -q
-# Current baseline: 9 passed (all metrics tests; no torch required).
-# After CLAN port: add tests for Lycos2017 loader, CLAN loss, encoder output shapes, trainer step.
 ```
+
+Tests use synthetic fixtures and do not require the real Lycos2017 or CICIDS2017
+datasets. Torch-dependent tests skip cleanly when PyTorch is not installed.
 
 ## Citations
 
-- J. Wilkie, H. Hindy, C. Tachtatzis, R. Atkinson. *CLAN: Contrastive Self-Supervised NIDS Using Augmented Negative Pairs.* IEEE CSR 2025. DOI:10.1109/CSR64739.2025.11129979
-- L. Lanvin, P.-F. Gimenez, Y. Han, F. Majorczyk, L. Me, E. Totel. *Errors in the CICIDS2017 Dataset and the Significant Differences in Detection Performances It Makes.* Springer 2023.
-- G. Engelen, V. Rimmer, W. Joosen. *Troubleshooting an Intrusion Detection Dataset: the CICIDS2017 Case Study.* WTMC 2021.
+- J. Wilkie, H. Hindy, C. Tachtatzis, R. Atkinson. *CLAN: Contrastive
+  Self-Supervised NIDS Using Augmented Negative Pairs.* IEEE CSR 2025.
+  DOI:10.1109/CSR64739.2025.11129979.
+- L. Lanvin, P.-F. Gimenez, Y. Han, F. Majorczyk, L. Me, E. Totel. *Errors in
+  the CICIDS2017 Dataset and the Significant Differences in Detection
+  Performances It Makes.* Springer 2023.
+- G. Engelen, V. Rimmer, W. Joosen. *Troubleshooting an Intrusion Detection
+  Dataset: the CICIDS2017 Case Study.* WTMC 2021.

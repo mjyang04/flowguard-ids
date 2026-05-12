@@ -1,4 +1,4 @@
-"""FlowGuard IDS: CLAN reproduction + SSL baseline comparison on Lycos2017."""
+"""FlowGuard IDS: CLAN reproduction and Lycos2017/CICIDS2017 audit."""
 
 from .config import ExperimentConfig, load_config, save_config
 

@@ -13,22 +13,19 @@ hyperparameters in Python.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any
+from typing import Any, get_origin, get_type_hints
 
 import yaml
 
 
 @dataclass(frozen=True)
 class DataConfig:
-    data_dir: str = "data/raw"
-    processed_dir: str = "data/processed"
     dataset: str = "lycos2017"  # 'lycos2017' | 'cicids2017'
     # Path to the dataset: a CSV file for Lycos2017 or a directory of
     # day-split zips/CSVs for CICIDS2017.
     csv_path: str = "data/raw/lycos.csv"
-    target_col: str = "label"
     drop_cols: tuple[str, ...] = (
         "flow_id",
         "src_addr",
@@ -38,55 +35,34 @@ class DataConfig:
         "ip_prot",
         "timestamp",
     )
-    benign_label: str = "benign"
     sample_threshold: int = 100  # attacks with < threshold samples become zero-day held-out
     test_ratio: float = 0.5
-    val_ratio: float = 0.0
     split_seed: int = 39058032
     batch_size: int = 2048  # lowered from 8192 for 6GB VRAM; raise on HPC
-    num_workers: int = 0
-    balanced_sampling: bool = True
 
 
 @dataclass(frozen=True)
 class ModelConfig:
     """ContrastiveMLP — the encoder used by CLAN."""
 
-    name: str = "contrastive_mlp"
-    input_dim: int = 72  # Lycos2017 after dropping 7 meta columns
     neurons: tuple[int, ...] = (1024, 1024, 1024, 1024)
     embedding_dim: int = 64
-    n_classes: int = 12  # for fine-tune probe head
-    dropout: float = 0.0
     residual: bool = True
-    project_to_sphere: bool = False  # CLANLoss normalises internally
 
 
 @dataclass(frozen=True)
 class LossConfig:
-    """Loss configuration. ``name`` selects which SSL loss drives training.
+    """CLAN objective hyperparameters."""
 
-    CLAN is the primary method; the other values are baselines for
-    comparison.
-    """
-
-    name: str = "clan"  # clan | simclr | barlow_twins | byol | vicreg | simsiam | conflow | sscl_ids
     margin: float = 0.5
     loss_alpha: float = 0.5  # weight on intra-class term vs inter-class term
-    squared: bool = False
-    distance_metric: str = "cosine"  # cosine | euclidean
-    eps: float = 1e-6
 
 
 @dataclass(frozen=True)
 class AugmentationConfig:
-    """Augmentation strategy for negative-view generation (CLAN default)."""
+    """Uniform-resample augmentation strength for CLAN negative views."""
 
-    name: str = "uniform_resample"  # uniform_resample | jitter | zero_out | feature_shuffle
     max_val: float = 1.7
-    mean: float = 0.0
-    variance: float = 1.0
-    p_sample: float = 1.0
     p_feature: float = 0.1
 
 
@@ -97,16 +73,11 @@ class TrainingConfig:
     num_epochs: int = 200
     learning_rate: float = 1e-4
     weight_decay: float = 0.0
-    optimizer: str = "adamw"
-    adam_beta1: float = 0.9
-    adam_beta2: float = 0.999
     warmup_ratio: float = 0.1
     lr_start: float = 1e-6
     lr_end: float = 1e-6
-    gradient_clip: float = 0.0  # CLAN does not clip
-    amp: bool = False
-    print_freq: int = 10
-    checkpoint_path: str = "weights/clan.pt.tar"
+    amp: bool = True
+    print_freq: int = 50
 
 
 @dataclass(frozen=True)
@@ -118,9 +89,7 @@ class FinetuneConfig:
     learning_rate: float = 1e-3
     weight_decay: float = 1e-6
     batch_size: int = 64
-    label_smoothing: float = 0.0
-    finetune_dropout: float = 0.0
-    checkpoint_path: str = "weights/clan_finetuned.pt.tar"
+    n_sample_seeds: int = 10
 
 
 @dataclass(frozen=True)
@@ -142,25 +111,40 @@ class ExperimentConfig:
 
 
 def _from_dict(cls: type[Any], data: dict[str, Any]) -> Any:
+    """Build a frozen dataclass instance from a YAML dict.
+
+    Resolves field types via :func:`typing.get_type_hints` so the converter
+    works regardless of ``from __future__ import annotations`` (which keeps
+    annotations as strings) and correctly identifies nested dataclasses /
+    tuple fields.
+    """
+    hints = get_type_hints(cls)
     kwargs: dict[str, Any] = {}
-    for field_def in cls.__dataclass_fields__.values():  # type: ignore[attr-defined]
+    for field_def in fields(cls):
         name = field_def.name
         if name not in data:
             continue
         value = data[name]
-        annotation = field_def.type
-        if hasattr(annotation, "__dataclass_fields__") and isinstance(value, dict):
-            kwargs[name] = _from_dict(annotation, value)
-        elif isinstance(value, list) and _is_tuple_field(field_def):
+        resolved = hints.get(name, field_def.type)
+        if isinstance(resolved, type) and hasattr(resolved, "__dataclass_fields__") and isinstance(value, dict):
+            kwargs[name] = _from_dict(resolved, value)
+        elif isinstance(value, list) and _is_tuple_type(resolved):
             kwargs[name] = tuple(value)
         else:
             kwargs[name] = value
     return cls(**kwargs)
 
 
-def _is_tuple_field(field_def: Any) -> bool:
-    annotation = field_def.type
-    return isinstance(annotation, str) and annotation.startswith("tuple")
+def _is_tuple_type(annotation: Any) -> bool:
+    if annotation is tuple:
+        return True
+    origin = get_origin(annotation)
+    if origin is tuple:
+        return True
+    # String fallback for unresolved annotations (e.g. forward refs).
+    if isinstance(annotation, str) and annotation.startswith("tuple"):
+        return True
+    return False
 
 
 def load_config(config_path: str | Path | None = None) -> ExperimentConfig:

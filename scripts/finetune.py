@@ -36,7 +36,10 @@ from nids.config import ExperimentConfig, load_config  # noqa: E402
 from nids.data import get_data_by_name, sample_data, tabular_dl  # noqa: E402
 from nids.evaluation import evaluate_supervised  # noqa: E402
 from nids.models import create_model  # noqa: E402
-from nids.training import AverageMeter, load_checkpoint, make_checkpoint  # noqa: E402
+from nids.training import (  # noqa: E402
+    AverageMeter,
+    load_checkpoint,
+)
 from nids.utils import ensure_dir, get_logger, save_json, seed_everything  # noqa: E402
 
 logger = get_logger(__name__)
@@ -72,19 +75,15 @@ def run_finetune(
     sample_seed: int,
     device: torch.device,
     checkpoint_path: str | Path,
-    n_classes_override: int | None = None,
 ) -> dict:
     """Single fine-tune run. Returns the metrics dict."""
     splits = get_data_by_name(
         cfg.data.dataset,
         cfg.data.csv_path,
-        target=cfg.data.target_col,
         drop=cfg.data.drop_cols,
-        class_zero=cfg.data.benign_label,
         sample_thres=cfg.data.sample_threshold,
         split_seed=cfg.data.split_seed,
         test_ratio=cfg.data.test_ratio,
-        val_ratio=cfg.data.val_ratio,
         anomaly_detection=False,
     )
 
@@ -99,22 +98,21 @@ def run_finetune(
     train_loader = tabular_dl(
         x_train, y_train,
         batch_size=cfg.finetune.batch_size,
-        balanced=cfg.data.balanced_sampling,
+        balanced=True,
         drop_last=False,
     )
 
     encoder = create_model(cfg.model, input_dim=splits.input_dim).to(device)
     load_checkpoint(checkpoint_path, encoder, map_location=device)
 
-    n_classes = n_classes_override or len(splits.class_names)
+    n_classes = len(splits.class_names)
     head = nn.Linear(cfg.model.embedding_dim, n_classes).to(device)
     model = nn.Sequential(encoder, head).to(device)
 
-    criterion = nn.CrossEntropyLoss(label_smoothing=cfg.finetune.label_smoothing)
+    criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=cfg.finetune.learning_rate,
-        betas=(cfg.training.adam_beta1, cfg.training.adam_beta2),
         weight_decay=cfg.finetune.weight_decay,
     )
 
@@ -135,26 +133,22 @@ def run_finetune(
 
 def main() -> None:
     parser = argparse.ArgumentParser("CLAN fine-tune (single run)")
-    parser.add_argument("--config", type=str, default="configs/default.yaml")
-    parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument("--config", type=str, default="configs/lycos.yaml")
     parser.add_argument("--shots", type=int, required=True)
     parser.add_argument("--sample-seed", type=int, default=0)
     parser.add_argument("--pretrain-seed", type=int, default=None,
                         help="which pretraining seed's checkpoint to load")
-    parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
 
     cfg: ExperimentConfig = load_config(args.config)
-    if args.device:
-        cfg = replace(cfg, runtime=replace(cfg.runtime, device=args.device))
     if args.pretrain_seed is not None:
         cfg = replace(cfg, runtime=replace(cfg.runtime, seed=args.pretrain_seed))
 
     seed_everything(args.sample_seed)  # sample_seed governs ft reproducibility
     device = resolve_device(cfg.runtime.device)
 
-    run_dir = Path(cfg.runtime.output_dir) / cfg.data.dataset / cfg.loss.name / f"seed{cfg.runtime.seed}"
-    checkpoint_path = args.checkpoint or str(run_dir / "clan.pt.tar")
+    run_dir = Path(cfg.runtime.output_dir) / cfg.data.dataset / "clan" / f"seed{cfg.runtime.seed}"
+    checkpoint_path = run_dir / "clan.pt.tar"
 
     metrics = run_finetune(
         cfg, shots=args.shots, sample_seed=args.sample_seed,

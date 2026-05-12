@@ -1,4 +1,10 @@
-# Chapter 3 — Research Methodology
+```{=openxml}
+<w:p><w:r><w:br w:type="page"/></w:r></w:p>
+```
+
+# CHAPTER 3
+
+# RESEARCH METHODOLOGY
 
 ## 3.1 Background
 
@@ -67,7 +73,7 @@ The implementation is given in `nids/training/losses/clan.py`; its numerical cor
 
 ## 3.5 Augmentation Family
 
-The augmented view $x_i^{aug}$ is produced by one of five stateless functions, selected via the configuration field `augmentation.name`:
+The augmented view $x_i^{aug}$ is produced by the upstream CLAN default `UniformResample` transform. The codebase keeps the other augmentation modules for tests and future ablations, but the final thesis configuration intentionally exposes only the two parameters used by the default transform (`augmentation.max_val` and `augmentation.p_feature`):
 
 - **UniformResample** (paper default). For each feature $k$ selected by a Bernoulli($p_f$) mask, the value is replaced by a sample from $\mathcal{U}(-m_v, m_v) + \mu_v$.
 - **GaussianResample.** The masked positions are replaced by samples from $\mathcal{N}(\mu_v, \sigma_v^2)$.
@@ -171,7 +177,7 @@ First, the upstream repository does not include a `data/` subpackage despite eve
 
 Second, the paper (§V-A) states that fine-tuning uses a learning rate of $10^{-6}$, whereas the upstream code (`finetune_clan.py` line 42) sets the argparse default to $10^{-3}$ — a discrepancy of three orders of magnitude. Using $10^{-6}$ over 100 epochs yields essentially frozen weights, inconsistent with the paper's reported 8-shot macro-F1 of 0.496. This thesis therefore adopts the code value and interprets the paper figure as a typographical error. This interpretation is further supported by the fact that every other hyperparameter in the same paragraph (100 epochs, batch size 64) is consistent between paper and code; the learning rate is the sole outlier.
 
-Both findings are logged in the code (`scripts/finetune.py` module docstring and `configs/lycos.yaml` finetune block) so that a downstream reader can locate the provenance without re-reading the thesis.
+Both findings are logged in the code (`scripts/finetune.py` module docstring and the fine-tune defaults in `nids/config.py` / `configs/default.yaml`) so that a downstream reader can locate the provenance without re-reading the thesis.
 
 ### 3.11.2 Ablations Within the Available Compute Budget
 
@@ -181,7 +187,7 @@ The full ablation design that would mirror the upstream CLAN paper's 200-iterati
 
 Two scope reductions are made explicit here to forestall the most predictable examiner objections.
 
-First, this thesis does not re-run the 200-iteration random-search + five-fold cross-validation protocol that Wilkie et al. (2025, §V-A) employ to choose hyperparameters. That protocol produces 1 000 complete pretraining runs per SSL method. On a single RTX 3060 this would require approximately 500 GPU-hours per method, which is infeasible. Instead this thesis adopts the hyperparameter values published in the upstream code (`configs/lycos.yaml`) and the matching values for CICIDS2017 (`configs/cicids.yaml`). This is a legitimate reproducibility shortcut — the authors' own code is the authoritative source for their hyperparameters — but it means that any suboptimal number reported on CICIDS2017 cannot be disentangled from the hypothesis "CICIDS2017 needs different hyperparameters than Lycos2017."
+First, this thesis does not re-run the 200-iteration random-search + five-fold cross-validation protocol that Wilkie et al. (2025, §V-A) employ to choose hyperparameters. That protocol produces 1 000 complete pretraining runs per SSL method. On a single RTX 3060 this would require approximately 500 GPU-hours per method, which is infeasible. Instead this thesis adopts the hyperparameter values published in the upstream code and records the shared values in `nids/config.py` / `configs/default.yaml`; the Lycos2017 and CICIDS2017 YAML profiles differ only in dataset fields. This is a legitimate reproducibility shortcut — the authors' own code is the authoritative source for their hyperparameters — but it means that any suboptimal number reported on CICIDS2017 cannot be disentangled from the hypothesis "CICIDS2017 needs different hyperparameters than Lycos2017."
 
 Second, this thesis does not compare CLAN to the seven SSL baselines listed in Wilkie et al. (2025, Tables I–III). The CLAN paper already provides that comparison on Lycos2017; re-running it on CICIDS2017 would require implementing and validating seven additional loss functions (SimCLR, Barlow Twins, BYOL, VICReg, SimSiam, ConFlow, SSCL-IDS), which sits outside the achievable scope of a single-student undergraduate project on commodity hardware. The present thesis therefore confines itself to the *single-method dual-dataset* audit that no one has yet published, on the grounds that depth on one new question is more valuable than breadth on a question that is already answered. Extending this audit to the seven SSL baselines is listed as future work in Chapter 5.
 
@@ -193,11 +199,11 @@ Code is developed locally on macOS with numerically-pure unit tests executed via
 
 ### 3.12.2 Configuration
 
-Every tunable knob is a field of one of the two YAML profiles `configs/lycos.yaml` and `configs/cicids.yaml`, organised into seven sections: `data`, `model`, `loss`, `augmentation`, `training`, `finetune`, and `runtime`. The command-line entry points (`scripts/train.py`, `scripts/eval.py`, `scripts/finetune_sweep.py`) read the YAML via `nids.config.load_config` and optionally override `runtime.device` and `runtime.seed` through flags. No hyperparameter is hardcoded in Python source.
+The YAML configuration is deliberately small after scope reduction. The dataset profiles `configs/lycos.yaml` and `configs/cicids.yaml` mostly specify the dataset name, raw-data path, and metadata columns to drop; shared CLAN defaults live in the frozen dataclasses in `nids.config` and in `configs/default.yaml`. The command-line entry points (`scripts/train.py`, `scripts/eval.py`, `scripts/finetune_sweep.py`) read the YAML via `nids.config.load_config`; training and evaluation normally require only `--config` and, when running multiple seeds, `--seed` or `--pretrain-seed`.
 
 ### 3.12.3 Artefact Layout
 
-Each run writes to `artifacts/<dataset>/<loss.name>/seed<S>/`, producing the following files: the checkpoint `clan.pt.tar`, the resolved configuration `resolved_config.yaml`, the evaluation report `eval_report.json`, the fine-tune per-run JSON `finetune_shots<K>_seed<S>.json`, and the sweep summary CSV `finetune_summary.csv`. Raw data (`data/raw/`), preprocessed caches (`data/processed/`), and artefacts (`artifacts/`) are gitignored.
+Each run writes to `artifacts/<dataset>/clan/seed<S>/`, producing the following files: the checkpoint `clan.pt.tar`, the resolved configuration `resolved_config.yaml`, the evaluation report `eval_report.json`, the fine-tune per-run JSON `finetune_shots<K>_seed<S>.json`, and the sweep summary CSV `finetune_summary.csv`. Raw data (`data/raw/`), preprocessed caches (`data/processed/`), and artefacts (`artifacts/`) are gitignored.
 
 ### 3.12.4 Reproducibility
 

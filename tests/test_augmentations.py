@@ -49,17 +49,9 @@ def test_jitter_does_not_change_stats_when_variance_zero():
 
 
 def test_make_augmentation_dispatches_by_name():
-    cfg = AugmentationConfig(
-        name="uniform_resample", max_val=1.7, mean=0.0, p_feature=0.1, p_sample=1.0
-    )
+    cfg = AugmentationConfig(max_val=1.7, p_feature=0.1)
     aug = make_augmentation(cfg)
     assert isinstance(aug, UniformResample)
-
-
-def test_make_augmentation_rejects_unknown_name():
-    cfg = AugmentationConfig(name="bogus")
-    with pytest.raises(ValueError, match="Unknown augmentation"):
-        make_augmentation(cfg)
 
 
 def test_augmentations_are_no_grad():

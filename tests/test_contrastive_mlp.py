@@ -42,22 +42,12 @@ def test_contrastive_mlp_project_to_sphere_normalises():
     assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5)
 
 
-def test_create_model_rejects_unknown_name():
-    cfg = ModelConfig(name="bogus")
-    with pytest.raises(ValueError, match="Unknown model name"):
-        create_model(cfg)
-
-
 def test_create_model_from_config_builds_expected_shape():
     cfg = ModelConfig(
-        name="contrastive_mlp",
-        input_dim=72,
         neurons=(256, 256),
         embedding_dim=64,
-        n_classes=12,
         residual=True,
     )
-    model = create_model(cfg)
+    model = create_model(cfg, input_dim=72)
     x = torch.randn(4, 72)
     assert model(x).shape == (4, 64)
-    assert model.forward_finetune(x).shape == (4, 12)

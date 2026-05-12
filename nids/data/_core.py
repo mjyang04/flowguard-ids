@@ -109,8 +109,9 @@ def _split_zero_day(
 
 
 def _fit_standardiser(x_train: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    # ddof=0 to match sklearn.preprocessing.StandardScaler (population std).
     mean = x_train.mean(axis=0)
-    std = x_train.std(axis=0, ddof=1)
+    std = x_train.std(axis=0, ddof=0)
     std = np.where(std < 1e-12, 1.0, std)
     return mean, std
 

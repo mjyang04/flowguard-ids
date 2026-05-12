@@ -1,4 +1,4 @@
-# Thesis Drafts — FlowGuard IDS (CLAN Reproduction)
+# Thesis Drafts — FlowGuard IDS (CLAN Reproduction + Dataset Audit)
 
 Working drafts of the thesis chapters, formatted to match the XMUM FYP Thesis Template (see `FYP Thesis Template 042025 v2.docx` in this folder). Every chapter uses **attributive citations** (`X et al. (year) propose / observe / argue that…`) in **APA 7** style.
 
@@ -37,9 +37,22 @@ pandoc \
 
 - **2.1 Deep Learning for Network Intrusion Detection** — five waves: early autoencoders → CNN / RNN specialisation → CNN-LSTM hybrids → Transformer → GNN & foundation models. ≈ 25 references.
 - **2.2 Self-Supervised Representation Learning** — SimCLR / MoCo lineage; BYOL / SimSiam / Barlow Twins / VICReg non-contrastive family; theoretical work (Arora; Wang & Isola); supervised contrastive (Khosla); tabular SSL (VIME / SCARF / SubTab). ≈ 21 references.
-- **2.3 Contrastive SSL for NIDS** — Anomal-E → ConFlow / SSCL-IDS / CLDNN → CLAN paradigm shift → hard-negative lineage (FaceNet, MoCHi) → gap analysis. ≈ 15 references.
+- **2.3 Contrastive SSL for NIDS** — Anomal-E → ConFlow / SSCL-IDS / CLDNN-related methods → CLAN paradigm shift → hard-negative lineage (FaceNet, MoCHi) → gap analysis. ≈ 15 references.
 - **2.4 Datasets and Evaluation** — DARPA → KDD99 → NSL-KDD → UNSW-NB15 → CICIDS2017 → Lycos2017 / NF-v2; metric pitfalls (Axelsson base-rate, Saito PR-AUC); emerging benchmarks. ≈ 17 references.
 - **2.5 Synthesis and Positioning** — places the present study at the intersection of the four sub-fields.
+
+## Current Scope
+
+The final project scope is intentionally narrowed for the available timeline:
+
+- Implement and reproduce **CLAN only**.
+- Run the same CLAN pipeline on **Lycos2017** and the original **CICIDS2017**.
+- Treat the few-shot shot-count sweep as the compute-feasible ablation.
+- Leave the seven SSL baselines (SimCLR, Barlow Twins, BYOL, VICReg, SimSiam,
+  ConFlow, SSCL-IDS) as future work, not as completed thesis experiments.
+
+This scope matches the current codebase: only `CLANLoss` is implemented, and
+baseline losses are not selectable from config or CLI.
 
 ## Citation Health Notes
 
@@ -59,4 +72,4 @@ Entries flagged with ⚠ in `references.md` need verification against the primar
 - ✅ APA 7 references
 - ⏳ Placeholder fields in `front_matter.md` (`[[STUDENT NAME]]`, `[[SUPERVISOR NAME]]`, `[[YEAR]]`, etc.) need filling before submission
 - ⏳ Data tables in Chapter 4 (`TBD` cells) need filling after the Windows/RTX 3060 experiments complete
-- ⏳ Figures 4.1 and 4.2 need plotting from the experiment output
+- ⏳ Figures 4.1 and 4.2 are optional plots derived from the same experiment output

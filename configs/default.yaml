@@ -1,94 +1,44 @@
-# CLAN reproduction on Lycos2017 — every tunable knob lives here.
-# Paper: Wilkie et al., "CLAN: Contrastive Self-Supervised NIDS Using Augmented Negative Pairs", IEEE CSR 2025.
-# Reference repo: https://github.com/jackwilkie/CLAN
-#
-# Defaults mirror CLAN's train_clan.py / eval_clan.py / finetune_clan.py argparse defaults.
+# Minimal CLAN defaults. Dataset-specific profiles only override `data`.
 
 data:
-  data_dir: data/raw
-  processed_dir: data/processed
   dataset: lycos2017
   csv_path: data/raw/lycos.csv
-  target_col: label
-  drop_cols:
-    - flow_id
-    - src_addr
-    - src_port
-    - dst_addr
-    - dst_port
-    - ip_prot
-    - timestamp
-  benign_label: benign
-  # Attack classes with fewer than `sample_threshold` samples are held out as
-  # zero-day evaluation set (used by eval_clan but not train_clan).
+  drop_cols: [flow_id, src_addr, src_port, dst_addr, dst_port, ip_prot, timestamp]
   sample_threshold: 100
   test_ratio: 0.5
-  val_ratio: 0.0
   split_seed: 39058032
-  batch_size: 2048          # lowered from upstream 8192 for RTX 3060 6GB VRAM
-  num_workers: 0
-  balanced_sampling: true
+  batch_size: 2048
 
 model:
-  # ContrastiveMLP — the actual CLAN encoder (the "CLDNN" in the paper's
-  # comparison table is a baseline, not CLAN's own encoder).
-  name: contrastive_mlp
-  input_dim: 72          # Lycos2017 has 79 cols; 7 meta cols are dropped
   neurons: [1024, 1024, 1024, 1024]
   embedding_dim: 64
-  n_classes: 12
-  dropout: 0.0
   residual: true
-  project_to_sphere: false  # CLANLoss does the L2-normalisation internally
 
 loss:
-  # CLAN is the primary method. Swap to one of the seven baselines to run
-  # the head-to-head SSL comparison:
-  # {simclr, barlow_twins, byol, vicreg, simsiam, conflow, sscl_ids}.
-  name: clan
   margin: 0.5
   loss_alpha: 0.5
-  squared: false
-  distance_metric: cosine
-  eps: 1.0e-6
 
 augmentation:
-  # "Uniform resample": replace a random fraction of features with samples
-  # from a uniform distribution. CLAN paper uses this as the negative-view
-  # generator during pretraining.
-  name: uniform_resample
   max_val: 1.7
-  mean: 0.0
-  variance: 1.0
-  p_sample: 1.0
   p_feature: 0.1
 
 training:
-  # Pretrain defaults from train_clan.py.
   num_epochs: 200
   learning_rate: 1.0e-4
   weight_decay: 0.0
-  optimizer: adamw
-  adam_beta1: 0.9
-  adam_beta2: 0.999
-  warmup_ratio: 0.1        # warmup 10% of total steps
+  warmup_ratio: 0.1
   lr_start: 1.0e-6
   lr_end: 1.0e-6
-  gradient_clip: 0.0
-  amp: true                 # fp16 mixed precision — required on 6GB VRAM
-  print_freq: 10
-  checkpoint_path: weights/clan.pt.tar
+  amp: true
+  print_freq: 50
 
 finetune:
-  # Few-shot fine-tune defaults from finetune_clan.py.
   samples_per_class: [8, 16, 32, 64, 128, 256, 512, 1024]
   num_epochs: 100
   learning_rate: 1.0e-3
   weight_decay: 1.0e-6
   batch_size: 64
-  label_smoothing: 0.0
-  finetune_dropout: 0.0
-  checkpoint_path: weights/clan_finetuned.pt.tar
+  n_sample_seeds: 10
 
 runtime:
   output_dir: artifacts

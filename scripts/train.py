@@ -1,8 +1,8 @@
 """Pretrain a CLAN-style self-supervised encoder.
 
 Usage:
-    python scripts/train.py --config configs/lycos.yaml  [--device cuda]
-    python scripts/train.py --config configs/cicids.yaml [--device cuda]
+    python scripts/train.py --config configs/lycos.yaml --seed 42
+    python scripts/train.py --config configs/cicids.yaml --seed 42
 
 Port of https://github.com/jackwilkie/CLAN/blob/main/train_clan.py
 (Apache-2.0) with four additions for the Lycos2017 vs CICIDS2017 study:
@@ -14,7 +14,7 @@ Port of https://github.com/jackwilkie/CLAN/blob/main/train_clan.py
 3. Automatic mixed precision (``autocast`` + ``GradScaler``) gated by
    ``cfg.training.amp`` — essential for RTX 3060 6 GB to fit
    ``batch_size=2048`` with the 4×1024 MLP.
-4. Run directory layout ``artifacts/<dataset>/<loss>/seed<S>/`` so that
+4. Run directory layout ``artifacts/<dataset>/clan/seed<S>/`` so that
    downstream scripts can locate each run without scanning.
 """
 
@@ -74,15 +74,12 @@ def train_one_epoch(
         optimizer.zero_grad(set_to_none=True)
 
         if use_amp:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device_type="cuda"):
                 x_cat = torch.cat([x, x_aug], dim=0)
                 z_cat = model(x_cat)
                 z, z_aug = torch.split(z_cat, [x.size(0), x_aug.size(0)], dim=0)
                 loss, frac_pos = criterion(z, z_aug)
             scaler.scale(loss).backward()
-            if cfg.training.gradient_clip > 0:
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.training.gradient_clip)
             scaler.step(optimizer)
             scaler.update()
         else:
@@ -91,8 +88,6 @@ def train_one_epoch(
             z, z_aug = torch.split(z_cat, [x.size(0), x_aug.size(0)], dim=0)
             loss, frac_pos = criterion(z, z_aug)
             loss.backward()
-            if cfg.training.gradient_clip > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.training.gradient_clip)
             optimizer.step()
 
         scheduler.step()
@@ -115,14 +110,11 @@ def train_one_epoch(
 
 def main() -> None:
     parser = argparse.ArgumentParser("CLAN pretraining")
-    parser.add_argument("--config", type=str, default="configs/default.yaml")
-    parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--config", type=str, default="configs/lycos.yaml")
     parser.add_argument("--seed", type=int, default=None, help="override cfg.runtime.seed")
     args = parser.parse_args()
 
     cfg: ExperimentConfig = load_config(args.config)
-    if args.device:
-        cfg = replace(cfg, runtime=replace(cfg.runtime, device=args.device))
     if args.seed is not None:
         cfg = replace(cfg, runtime=replace(cfg.runtime, seed=args.seed))
 
@@ -133,13 +125,10 @@ def main() -> None:
     splits = get_data_by_name(
         cfg.data.dataset,
         cfg.data.csv_path,
-        target=cfg.data.target_col,
         drop=cfg.data.drop_cols,
-        class_zero=cfg.data.benign_label,
         sample_thres=cfg.data.sample_threshold,
         split_seed=cfg.data.split_seed,
         test_ratio=cfg.data.test_ratio,
-        val_ratio=cfg.data.val_ratio,
         anomaly_detection=True,
     )
     logger.info(
@@ -151,9 +140,8 @@ def main() -> None:
     train_loader = tabular_dl(
         splits.x_train, splits.y_train,
         batch_size=cfg.data.batch_size,
-        balanced=cfg.data.balanced_sampling,
+        balanced=False,
         drop_last=True,
-        num_workers=cfg.data.num_workers,
         pin_memory=(device.type == "cuda"),
     )
 
@@ -162,15 +150,11 @@ def main() -> None:
     criterion = CLANLoss(
         m=cfg.loss.margin,
         loss_alpha=cfg.loss.loss_alpha,
-        squared=cfg.loss.squared,
-        distance_metric=cfg.loss.distance_metric,
-        eps=cfg.loss.eps,
     ).to(device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=cfg.training.lr_start,
-        betas=(cfg.training.adam_beta1, cfg.training.adam_beta2),
         weight_decay=cfg.training.weight_decay,
     )
 
@@ -186,11 +170,11 @@ def main() -> None:
     scheduler = LRSchedule(optimizer, base_schedule)
 
     use_amp = bool(cfg.training.amp) and device.type == "cuda"
-    scaler = torch.cuda.amp.GradScaler() if use_amp else None
+    scaler = torch.amp.GradScaler(device="cuda") if use_amp else None
     if use_amp:
         logger.info("mixed precision enabled (fp16 autocast + GradScaler)")
 
-    run_dir = Path(cfg.runtime.output_dir) / cfg.data.dataset / cfg.loss.name / f"seed{cfg.runtime.seed}"
+    run_dir = Path(cfg.runtime.output_dir) / cfg.data.dataset / "clan" / f"seed{cfg.runtime.seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
     save_config(cfg, run_dir / "resolved_config.yaml")
 

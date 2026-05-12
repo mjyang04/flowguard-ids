@@ -1,4 +1,10 @@
-# Chapter 2 — Literature Review
+```{=openxml}
+<w:p><w:r><w:br w:type="page"/></w:r></w:p>
+```
+
+# CHAPTER 2
+
+# LITERATURE REVIEW
 
 ## 2.0 Background
 
@@ -6,7 +12,6 @@ This chapter situates the present study — a reproduction of CLAN (Wilkie et al
 
 Citation style throughout is attributive: every non-trivial claim is accompanied by the specific authors who made it. Where a point is disputed, both sides are named.
 
----
 
 ## 2.1 Deep Learning for Network Intrusion Detection
 
@@ -36,11 +41,10 @@ Along a parallel axis, pre-trained foundation models have begun to dominate encr
 
 Across these five waves, two trajectories stand out. First, the centre of gravity has shifted from supervised classification on NSL-KDD-style tabular features (Javaid, Tang, Shone, Yin) toward self-supervised pretraining on benign traffic (Caville, Golchin, Wilkie, Guerra). Second, the inductive bias has moved from per-flow vectors (Vinayakumar) to sequences (Du, Kim), to spatial-temporal hybrids (Hwang, Najar), to attention (Manocchio, Han), and finally to graphs and state-space models (Lo, Guerra, Wang) — a steady broadening of the structural priors deemed useful for intrusion detection.
 
----
 
 ## 2.2 Self-Supervised Representation Learning
 
-Self-supervised learning (SSL) has become a mainstream paradigm in representation learning. Its core idea is to construct "pseudo-labels" from the data itself when human annotations are scarce, letting an encoder learn transferable representations that are then fine-tuned on a small supervised downstream task. This section follows the lineage "contrastive learning in vision → non-contrastive and redundancy-reduction methods → theoretical analysis → supervised contrastive → tabular SSL" to trace the ideas that CLAN (Wilkie et al., 2025) and its seven SSL baselines rely on.
+Self-supervised learning (SSL) has become a mainstream paradigm in representation learning. Its core idea is to construct "pseudo-labels" from the data itself when human annotations are scarce, letting an encoder learn transferable representations that are then fine-tuned on a small supervised downstream task. This section follows the lineage "contrastive learning in vision → non-contrastive and redundancy-reduction methods → theoretical analysis → supervised contrastive → tabular SSL" to trace the ideas that CLAN (Wilkie et al., 2025) and the surrounding SSL-NIDS literature rely on.
 
 ### 2.2.1 Contrastive Pretraining for Vision: Foundational Ideas
 
@@ -66,7 +70,6 @@ When partial labels are available, **Khosla et al. (2020, NeurIPS)** proposed Su
 
 Vision-domain SSL methods transfer poorly to tabular or flow data: cropping, colour jitter, and Gaussian blur assume a smooth image manifold that does not hold for discrete, heterogeneous, column-semantic tabular features. **Yoon et al. (2020, NeurIPS, VIME)** conducted the first systematic study of tabular SSL, proposing two pretext tasks — *mask vector estimation* and *feature value reconstruction* — together with a consistency-regularised semi-supervised extension; they demonstrated substantial gains over purely supervised baselines on small-sample medical and genomic data. **Ucar, Hajiramezanali & Edwards (2021, NeurIPS, SubTab)** argued that treating an entire row as a single view is information-sparse, and instead randomly partitioned the feature columns into subsets, letting the model learn representations consistent across subsets by reconstructing the full row — conceptually replacing SimCLR's "two augmentations" with "two feature subsets". **Bahri et al. (2022, ICLR, SCARF)** directly transplanted SimCLR's InfoNCE loss to tabular data, defining augmentation as "randomly replace a subset of feature columns with values drawn from the marginal", and validated its superiority over denoising and VIME-style pretext on 69 OpenML datasets. **Somepalli et al. (2021, SAINT)** more recently combined SCARF's column-level augmentation with row-and-column attention, showing that tabular SSL has approached the maturity of its vision counterpart. On the NIDS side, ConFlow (Liu et al., 2023) and SSCL-IDS (Golchin et al., 2024) largely follow the SCARF column-augmentation template but introduce flow-level positive construction; CLAN (Wilkie et al., 2025) contributes to this lineage by observing that under benign-only training, column-augmented "distorted benign" samples are *already* strong enough to serve as negatives for an anchor, simultaneously achieving uniformity (in the sense of Wang & Isola, 2020) and sensitivity to malicious flows.
 
----
 
 ## 2.3 Contrastive Self-Supervised Learning for NIDS
 
@@ -92,11 +95,10 @@ Additionally, in the neighbouring *tabular SSL* domain, **Yoon et al. (2020, Neu
 
 ### 2.3.5 GraphIDS and Gap Analysis
 
-A parallel 2025 line, represented by **Guerra et al. (2025, NeurIPS, GraphIDS)**, takes a *generative* rather than a *contrastive* SSL path — combining E-GraphSAGE with a Transformer masked autoencoder and achieving 99.98% PR-AUC — but its inductive bias (reconstruction) is orthogonal to contrastive learning and its deployment cost is substantially higher than CLAN's CLDNN encoder.
+A parallel 2025 line, represented by **Guerra et al. (2025, NeurIPS, GraphIDS)**, takes a *generative* rather than a *contrastive* SSL path — combining E-GraphSAGE with a Transformer masked autoencoder and achieving 99.98% PR-AUC — but its inductive bias (reconstruction) is orthogonal to contrastive learning and its deployment cost is substantially higher than CLAN's lightweight ContrastiveMLP encoder.
 
 Synthesising the above: Anomal-E (Caville et al., 2022) resolved the "is self-supervised NIDS viable?" question; ConFlow / CLDNN / SSCL-IDS (Liu et al., 2023; Lopes et al., 2022; Golchin et al., 2024) engineered the SimCLR template into NIDS without questioning its foundational assumption; MoCHi / FaceNet (Kalantidis et al., 2020; Schroff et al., 2015) proved the value of hard negatives in general domains but were never systematically exploited in NIDS. **CLAN's contribution sits precisely at the intersection of these three threads**: it retains SSCL-IDS's "benign-only pretraining" simplicity, absorbs MoCHi's hard-negative intuition, and operationalises both via a loss purpose-built for NIDS benign-distribution modelling. What CLAN's original evaluation has not examined is how sensitive its headline numbers are to the underlying data — a question this thesis takes as its central concern, setting aside the SSL-family comparison that Wilkie et al. already tabulated in favour of a controlled *single-method dual-dataset* audit on Lycos2017 and the original CICIDS2017.
 
----
 
 ## 2.4 Benchmark Datasets and Evaluation Practices
 
@@ -138,7 +140,6 @@ On the multiclass side, **macro-F1** and **weighted-F1** tell different stories:
 
 Two datasets target the IoT threat surface that older benchmarks miss. **Alsaedi, Moustafa, Tari, Mahmood and Anwar (2020, *IEEE Access*)** — with follow-up by **Moustafa, Slay and Creech (2021, *IEEE ISI*)** — released **TON-IoT**, a heterogeneous collection of IoT / IIoT telemetry, OS logs and network flows captured at the UNSW Canberra Cyber Range, designed to cover sensor-level and ICS-level attack vectors. **Neto et al. (2023, *Sensors*)** published **CICIoT2023**, a 105-device smart-home testbed spanning seven attack families (DDoS, DoS, Recon, Web, Brute-Force, Spoofing, Mirai) and over 30 concrete attack types — currently the largest publicly-available IoT NIDS benchmark. Neither dataset replaces Lycos2017 for the present setting, but both are relevant to the cross-domain generalisation discussion in the thesis conclusion.
 
----
 
 ## 2.5 Synthesis and Positioning
 
@@ -153,5 +154,3 @@ Given this position, the contributions of this thesis are:
 1. **A faithful CLAN reproduction on Lycos2017** — tracking the upstream Apache-2.0 implementation of Wilkie et al. (2025) and producing independent verification of their headline AUROC and few-shot multiclass numbers, along with two documented paper-versus-code discrepancies uncovered during the port.
 2. **A single-method dual-dataset audit** — running the same CLAN pipeline, with identical hyperparameters and identical three-seed protocol, on both Lycos2017 (clean) and the original CICIDS2017 (noisy, as distributed by Sharafaldin et al., 2018). This is the first such audit published for any self-supervised NIDS method.
 3. **Per-class ranking-stability analysis** — quantifying the degree to which the relative ordering of attack classes produced by a centroid-based CLAN detector is stable under the label-noise regimes of Engelen et al. (2021) and Rosay et al. (2022), with implications for whether self-supervised NIDS findings generalise beyond their evaluation corpus.
-
-See references in `references.md` (consolidated across §§2.1–2.4).

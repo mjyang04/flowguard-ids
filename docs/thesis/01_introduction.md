@@ -1,4 +1,6 @@
-# Chapter 1 — Introduction
+# CHAPTER 1
+
+# INTRODUCTION
 
 ## 1.1 Motivation
 
@@ -49,4 +51,4 @@ Rather than add yet another row to the CLAN-versus-other-SSL comparison table on
 - **Chapter 3 — Research Methodology** gives a formal description of CLAN, the controlled dual-dataset evaluation protocol, the fine-tune averaging procedure, and the set of reproducibility safeguards adopted here.
 - **Chapter 4 — Results and Discussion** reports the Lycos2017 reproduction, the CICIDS2017 control, the per-class stability analysis, and the few-shot curves, then interprets the magnitude and direction of the observed shifts against the prior literature on label noise in intrusion detection benchmarks.
 - **Chapter 5 — Conclusion** summarises the contributions, acknowledges the specific limitations of the single-method scope adopted here, and outlines three directions for future work — extending the dual-dataset protocol to the seven SSL baselines that CLAN's original paper lists, implementing robust-to-noise variants of the CLAN objective, and running the same test on contemporary corpora such as CICIoT2023.
-- **Bibliography** is maintained in `references.md`; every citation in this thesis resolves there with an author-year key.
+- **References** are listed at the end of this report; every citation in the thesis body resolves there with an author-year entry.

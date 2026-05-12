@@ -5,9 +5,7 @@
 #   bash scripts/run_experiment.sh                  # both datasets, 3 seeds
 #   bash scripts/run_experiment.sh lycos            # lycos only, 3 seeds
 #   bash scripts/run_experiment.sh cicids           # cicids only, 3 seeds
-#   SEEDS="42" SAMPLE_SEEDS=3 bash scripts/run_experiment.sh lycos
-#                                                    # quick smoke: 1 pretrain
-#                                                    # seed + 3 sample seeds
+#   SEEDS="42" bash scripts/run_experiment.sh lycos # quick smoke: 1 seed
 #
 # On RTX 3060 6 GB expected wall-clock:
 #   pretrain 200 epochs × bs=2048 × AMP  ≈  30–60 min per run
@@ -24,8 +22,6 @@ set -euo pipefail
 
 DATASETS=${1:-both}
 SEEDS=${SEEDS:-"42 43 44"}
-SAMPLE_SEEDS=${SAMPLE_SEEDS:-10}
-DEVICE=${DEVICE:-cuda}
 CONFIG_DIR=${CONFIG_DIR:-configs}
 
 run_one_dataset() {
@@ -38,16 +34,14 @@ run_one_dataset() {
 
     for seed in $SEEDS; do
         echo "==== $name | pretrain seed=$seed ===="
-        python scripts/train.py --config "$config" --device "$DEVICE" --seed "$seed"
+        python scripts/train.py --config "$config" --seed "$seed"
 
         echo "==== $name | eval seed=$seed ===="
-        python scripts/eval.py --config "$config" --device "$DEVICE" --seed "$seed"
+        python scripts/eval.py --config "$config" --seed "$seed"
 
-        echo "==== $name | finetune sweep (pretrain seed=$seed × $SAMPLE_SEEDS ft seeds) ===="
+        echo "==== $name | finetune sweep (pretrain seed=$seed) ===="
         python scripts/finetune_sweep.py --config "$config" \
-            --device "$DEVICE" \
-            --pretrain-seed "$seed" \
-            --n-sample-seeds "$SAMPLE_SEEDS"
+            --pretrain-seed "$seed"
     done
 }
 

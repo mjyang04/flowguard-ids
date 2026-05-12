@@ -194,33 +194,20 @@ class ContrastiveMLP(nn.Module):
         return self.forward_proj(self.forward_features(x))
 
 
-def create_model(cfg: ModelConfig, *, input_dim: Optional[int] = None) -> ContrastiveMLP:
+def create_model(cfg: ModelConfig, *, input_dim: int) -> ContrastiveMLP:
     """Factory: build a :class:`ContrastiveMLP` from an
     :class:`~nids.config.ModelConfig`.
 
-    ``input_dim`` overrides the config value when supplied — this is the
-    correct path for production code because the true feature count can
-    only be known after the data loader has dropped all-zero columns. The
-    config value is then used as an *assertion* to catch silent schema
-    drift: if both are supplied and they disagree, a ValueError is raised.
+    The true feature count is known only after the dataset loader has dropped
+    metadata and all-zero columns, so callers must pass ``input_dim`` from the
+    loaded splits.
     """
-    if cfg.name.lower() != "contrastive_mlp":
-        raise ValueError(
-            f"Unknown model name: {cfg.name!r}. Only 'contrastive_mlp' is supported."
-        )
-    d_in = input_dim if input_dim is not None else cfg.input_dim
-    if input_dim is not None and cfg.input_dim != input_dim:
-        import logging
-        logging.getLogger(__name__).warning(
-            "input_dim override: config=%d actual=%d (using actual)",
-            cfg.input_dim, input_dim,
-        )
     return ContrastiveMLP(
-        d_in=d_in,
+        d_in=input_dim,
         neurons=cfg.neurons,
         d_out=cfg.embedding_dim,
-        n_classes=cfg.n_classes,
-        dropout=cfg.dropout,
+        n_classes=None,
+        dropout=0.0,
         residual=cfg.residual,
-        project_to_sphere=cfg.project_to_sphere,
+        project_to_sphere=False,
     )

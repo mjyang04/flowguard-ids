@@ -1,8 +1,7 @@
 """Paper-faithful fine-tune sweep: 8 shot counts × N sample seeds.
 
 Usage:
-    python scripts/finetune_sweep.py --config configs/lycos.yaml \\
-        --pretrain-seed 42 --n-sample-seeds 10
+    python scripts/finetune_sweep.py --config configs/lycos.yaml --pretrain-seed 42
 
 The CLAN paper (Wilkie et al., IEEE CSR 2025, §V-A) reports:
     "reported results were averaged over 10 runs, with a different seed
@@ -10,7 +9,7 @@ The CLAN paper (Wilkie et al., IEEE CSR 2025, §V-A) reports:
 
 This script implements that protocol and writes a summary CSV with the
 mean ± std of macro-F1 per shot count, which is the number that goes into
-thesis Table 4.4.
+thesis Table 4.6.
 
 On RTX 3060 6 GB this takes roughly:
     8 shots × 10 sample seeds × ~2 min/run ≈ 160 minutes per pretrain seed.
@@ -38,25 +37,18 @@ logger = get_logger(__name__)
 
 def main() -> None:
     parser = argparse.ArgumentParser("CLAN fine-tune sweep (paper protocol)")
-    parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument("--config", type=str, default="configs/lycos.yaml")
     parser.add_argument("--pretrain-seed", type=int, default=42)
-    parser.add_argument("--shots", type=int, nargs="+", default=None,
-                        help="override cfg.finetune.samples_per_class")
-    parser.add_argument("--n-sample-seeds", type=int, default=10)
-    parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
 
     cfg: ExperimentConfig = load_config(args.config)
-    if args.device:
-        cfg = replace(cfg, runtime=replace(cfg.runtime, device=args.device))
     cfg = replace(cfg, runtime=replace(cfg.runtime, seed=args.pretrain_seed))
 
     device = resolve_device(cfg.runtime.device)
-    shot_list = tuple(args.shots) if args.shots else cfg.finetune.samples_per_class
+    shot_list = cfg.finetune.samples_per_class
 
-    run_dir = Path(cfg.runtime.output_dir) / cfg.data.dataset / cfg.loss.name / f"seed{cfg.runtime.seed}"
-    checkpoint_path = args.checkpoint or str(run_dir / "clan.pt.tar")
+    run_dir = Path(cfg.runtime.output_dir) / cfg.data.dataset / "clan" / f"seed{cfg.runtime.seed}"
+    checkpoint_path = run_dir / "clan.pt.tar"
     if not Path(checkpoint_path).exists():
         raise FileNotFoundError(
             f"Pretrain checkpoint not found: {checkpoint_path}. "
@@ -75,7 +67,7 @@ def main() -> None:
         for shots in shot_list:
             f1s: list[float] = []
             accs: list[float] = []
-            for sample_seed in range(args.n_sample_seeds):
+            for sample_seed in range(cfg.finetune.n_sample_seeds):
                 seed_everything(sample_seed)
                 logger.info("shots=%d sample_seed=%d", shots, sample_seed)
                 metrics = run_finetune(
@@ -107,7 +99,7 @@ def main() -> None:
     save_json({"per_run": per_run_log,
                "dataset": cfg.data.dataset,
                "pretrain_seed": args.pretrain_seed,
-               "n_sample_seeds": args.n_sample_seeds},
+               "n_sample_seeds": cfg.finetune.n_sample_seeds},
               run_dir / "finetune_per_run.json")
     logger.info("summary written to %s", summary_path)
 

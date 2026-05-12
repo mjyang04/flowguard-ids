@@ -1,4 +1,10 @@
-# Chapter 4 — Results and Discussion
+```{=openxml}
+<w:p><w:r><w:br w:type="page"/></w:r></w:p>
+```
+
+# CHAPTER 4
+
+# RESULTS AND DISCUSSION
 
 ## 4.1 Background
 
@@ -110,7 +116,7 @@ Table 4.5: Per-class rank comparison of CLAN on Lycos2017 versus CICIDS2017.
 
 ## 4.5 Few-Shot Multiclass Curves Across Datasets (RQ4)
 
-Table 4.6 reports the macro-F1 curves on both datasets, with means and standard deviations taken over three pretraining seeds × ten fine-tune sample seeds ($n = 30$ per cell). Statistical significance of the per-$K$ difference between the two datasets is assessed with a Welch's paired $t$-test; $p$-values in the table are Bonferroni-corrected for the eight shot-count comparisons.
+Table 4.6 reports the macro-F1 curves on both datasets, with means and standard deviations taken over three pretraining seeds × ten fine-tune sample seeds ($n = 30$ per cell). Statistical significance of the per-$K$ difference between the two datasets is assessed with a paired $t$-test; $p$-values in the table are Bonferroni-corrected for the eight shot-count comparisons.
 
 Table 4.6: Few-shot macro-F1 of CLAN on Lycos2017 versus CICIDS2017.
 

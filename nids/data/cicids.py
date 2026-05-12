@@ -103,8 +103,6 @@ def _canonicalise_label(raw: object) -> str:
     # Normalise repeated whitespace introduced by the collapse.
     while "  " in key:
         key = key.replace("  ", " ")
-    # Unified whitespace around the hyphen used by Web Attack classes.
-    key = key.replace(" - ", " - ").replace("- ", "- ").replace(" -", " -")
     return _LABEL_CANONICAL.get(key, key.replace(" ", "_").replace("-", "_"))
 
 

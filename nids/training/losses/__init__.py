@@ -1,4 +1,8 @@
-"""SSL loss functions for CLAN and its baselines."""
+"""SSL loss functions implemented in this project.
+
+Only CLAN is implemented for the current thesis scope. The broader SSL
+baseline family is discussed in the literature review and left as future work.
+"""
 
 from .clan import CLANLoss, clan_loss
 

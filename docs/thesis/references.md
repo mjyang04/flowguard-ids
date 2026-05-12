@@ -1,8 +1,8 @@
-# References
+```{=openxml}
+<w:p><w:r><w:br w:type="page"/></w:r></w:p>
+```
 
-References are formatted in APA 7 style and grouped topically to aid cross-checking. Entries flagged with ⚠ need advisor verification against primary sources before final submission; see `README.md` § Citation Health Notes. Inside the thesis body, citations use the short author–year form (e.g. "Wilkie et al., 2025"), which resolves against this list.
-
----
+# REFERENCES
 
 ## NIDS Architectures and Surveys
 

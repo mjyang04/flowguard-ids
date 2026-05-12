@@ -1,9 +1,9 @@
 """Augmentations used to generate "negative views" during CLAN pretraining.
 
 Ported from https://github.com/jackwilkie/CLAN/blob/main/loss/augmentations.py
-(Apache-2.0). The upstream factory pattern has been replaced with a plain
-:func:`make_augmentation(cfg)` factory consuming our
-:class:`~nids.config.AugmentationConfig`.
+(Apache-2.0). The current thesis scope always uses CLAN's default
+``UniformResample`` negative-view generator; the other augmentation modules are
+kept for tests and future ablations.
 
 All augmentation modules are stateless (``no_grad``) — they only perturb
 the input tensor and return a new tensor of the same shape.
@@ -119,39 +119,11 @@ class FeatureShuffle(nn.Module):
         return x * (1.0 - mask) + x_shuffled * mask
 
 
-_REGISTRY: dict[str, type[nn.Module]] = {
-    "jitter": Jitter,
-    "zero_out": ZeroOutNoise,
-    "gaussian_resample": GaussianResample,
-    "uniform_resample": UniformResample,
-    "feature_shuffle": FeatureShuffle,
-}
-
-
 def make_augmentation(cfg: AugmentationConfig) -> nn.Module:
-    """Factory: build the augmentation module named in ``cfg``."""
-    name = cfg.name.lower()
-    if name not in _REGISTRY:
-        raise ValueError(
-            f"Unknown augmentation: {cfg.name!r}. Available: {list(_REGISTRY)}"
-        )
-    cls = _REGISTRY[name]
-    if name == "uniform_resample":
-        return cls(
-            max_val=cfg.max_val, mean=cfg.mean, p_feature=cfg.p_feature, p_sample=cfg.p_sample
-        )
-    if name == "gaussian_resample":
-        return cls(
-            mean=cfg.mean,
-            variance=cfg.variance,
-            p_feature=cfg.p_feature,
-            p_sample=cfg.p_sample,
-        )
-    if name == "jitter":
-        return cls(
-            variance=cfg.variance,
-            mean=cfg.mean,
-            p_feature=cfg.p_feature,
-            p_sample=cfg.p_sample,
-        )
-    return cls(p_feature=cfg.p_feature, p_sample=cfg.p_sample)
+    """Build CLAN's default uniform-resample augmentation."""
+    return UniformResample(
+        max_val=cfg.max_val,
+        mean=0.0,
+        p_feature=cfg.p_feature,
+        p_sample=1.0,
+    )

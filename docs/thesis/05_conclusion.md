@@ -1,4 +1,10 @@
-# Chapter 5 — Conclusion
+```{=openxml}
+<w:p><w:r><w:br w:type="page"/></w:r></w:p>
+```
+
+# CHAPTER 5
+
+# CONCLUSION
 
 ## 5.1 Background
 
