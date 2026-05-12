@@ -50,6 +50,7 @@ flowguard-ids/
 │   ├── eval.py            # Centroid-based AUROC evaluation
 │   ├── finetune.py        # Single few-shot fine-tune run
 │   ├── finetune_sweep.py  # Paper-style few-shot sweep
+│   ├── run_experiment.py  # Cross-platform Lycos/CICIDS driver
 │   └── run_experiment.sh  # Lycos/CICIDS driver
 ├── tests/                 # Synthetic-fixture unit/contract tests
 └── docs/thesis/           # FYP thesis chapters and template
@@ -78,7 +79,10 @@ python scripts/eval.py --config configs/lycos.yaml --seed 42
 python scripts/finetune_sweep.py --config configs/lycos.yaml --pretrain-seed 42
 
 # 6. Full dual-dataset audit
-bash scripts/run_experiment.sh both
+python scripts/run_experiment.py --datasets both
+
+# Resume an interrupted full run without redoing completed stages
+python scripts/run_experiment.py --datasets both --skip-existing
 ```
 
 ## Configuration
