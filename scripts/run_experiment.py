@@ -4,6 +4,11 @@ Examples:
     # One command, sequential and safe: both datasets, seeds 42/43/44.
     python scripts/run_experiment.py --datasets both
 
+    # Same run, but the datasets live outside the repository.
+    python scripts/run_experiment.py --datasets both \
+        --lycos-csv "E:\\datasets\\lycos.csv" \
+        --cicids-source "E:\\datasets\\cicids2017\\csv_files"
+
     # Resume an interrupted full run without redoing completed outputs.
     python scripts/run_experiment.py --datasets both --skip-existing
 
@@ -25,6 +30,8 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SEEDS = (42, 43, 44)
@@ -87,6 +94,16 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing lycos.yaml and cicids.yaml.",
     )
     parser.add_argument(
+        "--lycos-csv",
+        default=None,
+        help="Override Lycos2017 CSV path without editing configs/lycos.yaml.",
+    )
+    parser.add_argument(
+        "--cicids-source",
+        default=None,
+        help="Override CICIDS2017 source path without editing configs/cicids.yaml.",
+    )
+    parser.add_argument(
         "--skip-existing",
         action="store_true",
         help="Skip stages whose expected output file already exists.",
@@ -116,6 +133,37 @@ def config_path(config_dir: str, dataset: str) -> Path:
     return path
 
 
+def maybe_relative(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def dataset_override(args: argparse.Namespace, dataset: str) -> str | None:
+    if dataset == "lycos":
+        return args.lycos_csv
+    if dataset == "cicids":
+        return args.cicids_source
+    return None
+
+
+def effective_config_path(args: argparse.Namespace, dataset: str, log_dir: Path) -> Path:
+    base_config = config_path(args.config_dir, dataset)
+    override = dataset_override(args, dataset)
+    if not override:
+        return base_config
+
+    raw = yaml.safe_load(base_config.read_text(encoding="utf-8")) or {}
+    raw.setdefault("data", {})["csv_path"] = override
+
+    out_dir = log_dir / "resolved_configs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{dataset}.yaml"
+    out_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    return out_path
+
+
 def artifact_dir(config: Path, seed: int) -> Path:
     sys.path.insert(0, str(ROOT))
     from nids.config import load_config
@@ -136,17 +184,17 @@ def output_for_stage(config: Path, seed: int, stage: str) -> Path:
 
 
 def command_for_stage(python: str, config: Path, seed: int, stage: str) -> list[str]:
-    rel_config = config.relative_to(ROOT)
+    config_arg = maybe_relative(config)
     if stage == "train":
-        return [python, "scripts/train.py", "--config", str(rel_config), "--seed", str(seed)]
+        return [python, "scripts/train.py", "--config", config_arg, "--seed", str(seed)]
     if stage == "eval":
-        return [python, "scripts/eval.py", "--config", str(rel_config), "--seed", str(seed)]
+        return [python, "scripts/eval.py", "--config", config_arg, "--seed", str(seed)]
     if stage == "finetune":
         return [
             python,
             "scripts/finetune_sweep.py",
             "--config",
-            str(rel_config),
+            config_arg,
             "--pretrain-seed",
             str(seed),
         ]
@@ -210,11 +258,11 @@ def run_seed_pipeline(
 
 
 def run_dataset(args: argparse.Namespace, dataset: str) -> None:
-    config = config_path(args.config_dir, dataset)
-    max_workers = max(1, min(args.parallel_seeds, len(args.seeds)))
     log_dir = ROOT / args.log_dir
+    config = effective_config_path(args, dataset, log_dir)
+    max_workers = max(1, min(args.parallel_seeds, len(args.seeds)))
 
-    print(f"\n==== dataset={dataset} config={config.relative_to(ROOT)} ====")
+    print(f"\n==== dataset={dataset} config={maybe_relative(config)} ====")
     print(f"seeds={args.seeds} parallel_seeds={max_workers} stages={args.stages}")
     if max_workers > 1:
         print("[warn] Parallel seeds launch independent Python processes.")

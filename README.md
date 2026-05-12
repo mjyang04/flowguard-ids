@@ -83,6 +83,9 @@ python scripts/run_experiment.py --datasets both
 
 # Resume an interrupted full run without redoing completed stages
 python scripts/run_experiment.py --datasets both --skip-existing
+
+# If datasets are stored outside this repo, override the paths here
+python scripts/run_experiment.py --datasets both --lycos-csv "E:\datasets\lycos.csv" --cicids-source "E:\datasets\cicids2017\csv_files"
 ```
 
 ## Configuration
