@@ -41,7 +41,7 @@ def clan_loss(
     alpha: float = 0.5,
     squared: bool = False,
     distance_metric: Callable[..., Tensor] = cosdist,
-    eps: float = 1e-16,
+    eps: float = 1e-6,
     return_frac_pos: bool = True,
 ) -> Tensor | tuple[Tensor, Tensor]:
     """Functional CLAN loss.
@@ -78,7 +78,7 @@ class CLANLoss(nn.Module):
         loss_alpha: float = 0.5,
         squared: bool = False,
         distance_metric: str = "cosine",
-        eps: float = 1e-16,
+        eps: float = 1e-6,
     ) -> None:
         super().__init__()
         if not 0.0 <= loss_alpha <= 1.0:

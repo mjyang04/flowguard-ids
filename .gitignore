@@ -8,6 +8,7 @@ __pycache__/
 .pytest_cache/
 .idea/
 .claude/
+.codex/
 
 artifacts/
 data/

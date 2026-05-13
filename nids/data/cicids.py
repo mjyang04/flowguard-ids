@@ -217,6 +217,12 @@ def get_data_cicids(
     ``data_source`` may be a directory of day-split zips/CSVs or a single
     pre-merged CSV. Labels are kept in their original (potentially noisy)
     form — this is the control for the Lycos2017 comparison.
+
+    CICIDS2017 contains CICFlowMeter rate/count/duration features spanning
+    many orders of magnitude. The shared kernel therefore receives a
+    parameter-free signed log1p transform plus training-split median
+    imputation, so CLAN can be applied to the raw CICIDS feature scale without
+    hard clipping or label repair.
     """
     df = load_cicids_dataframe(data_source)
     return prepare_splits(
@@ -231,4 +237,6 @@ def get_data_cicids(
         anomaly_detection=anomaly_detection,
         standardise=standardise,
         drop_zero_cols=True,
+        numeric_transform="signed_log1p",
+        impute_strategy="median",
     )

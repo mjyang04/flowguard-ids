@@ -60,6 +60,10 @@ def finetune_one_epoch(loader, model, criterion, optimizer, epoch, device):
         y = y.to(device, non_blocking=True)
         logits = model(x)
         loss = criterion(logits, y)
+        if not torch.isfinite(loss):
+            raise FloatingPointError(
+                "non-finite fine-tune loss; check input scaling and checkpoint"
+            )
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()

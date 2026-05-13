@@ -10,7 +10,7 @@ Working drafts of the thesis chapters, formatted to match the XMUM FYP Thesis Te
 | `01_introduction.md` | Chapter 1 — Introduction | **Complete draft** | 1 300 |
 | `02_related_work.md` | Chapter 2 — Literature Review (§§2.1–2.5) | **Complete draft** | 5 250 |
 | `03_research_methodology.md` | Chapter 3 — Research Methodology (§§3.1–3.12) | **Complete draft** | 3 400 |
-| `04_results_and_discussion.md` | Chapter 4 — Results and Discussion (§§4.1–4.6) | **Draft with TBD data tables** (populated after experiments run) | 2 200 |
+| `04_results_and_discussion.md` | Chapter 4 — Results and Discussion (§§4.1–4.6) | **Lycos2017 populated; CICIDS2017 TBD** | 2 400 |
 | `05_conclusion.md` | Chapter 5 — Conclusion (§§5.1–5.5) | **Complete draft** | 1 500 |
 | `references.md` | References (APA 7) | **≈ 80 entries, APA 7** | 1 800 |
 
@@ -71,5 +71,5 @@ Entries flagged with ⚠ in `references.md` need verification against the primar
 - ✅ Chapter numbering matches template (5 chapters)
 - ✅ APA 7 references
 - ⏳ Placeholder fields in `front_matter.md` (`[[STUDENT NAME]]`, `[[SUPERVISOR NAME]]`, `[[YEAR]]`, etc.) need filling before submission
-- ⏳ Data tables in Chapter 4 (`TBD` cells) need filling after the Windows/RTX 3060 experiments complete
+- ⏳ CICIDS2017 data tables in Chapter 4 (`TBD` cells) need filling after the Windows/RTX 3060 experiments complete
 - ⏳ Figures 4.1 and 4.2 are optional plots derived from the same experiment output

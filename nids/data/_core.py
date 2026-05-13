@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Iterable
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -116,6 +117,34 @@ def _fit_standardiser(x_train: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return mean, std
 
 
+def _stabilise_features(x: np.ndarray) -> np.ndarray:
+    """Final guard that keeps model inputs finite after preprocessing."""
+    return np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _transform_numeric_features(x: np.ndarray, transform: str | None) -> np.ndarray:
+    if transform is None or transform == "none":
+        return x
+    if transform == "signed_log1p":
+        return np.sign(x) * np.log1p(np.abs(x))
+    raise ValueError(f"Unknown numeric_transform={transform!r}")
+
+
+def _fit_imputer(x_train: np.ndarray, strategy: str) -> np.ndarray:
+    if strategy == "zero":
+        return np.zeros((x_train.shape[1],), dtype=np.float64)
+    if strategy == "median":
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            fill = np.nanmedian(x_train, axis=0)
+        return np.where(np.isfinite(fill), fill, 0.0)
+    raise ValueError(f"Unknown impute_strategy={strategy!r}")
+
+
+def _apply_imputer(x: np.ndarray, fill: np.ndarray) -> np.ndarray:
+    return np.where(np.isfinite(x), x, fill)
+
+
 def prepare_splits(
     df: pd.DataFrame,
     *,
@@ -129,6 +158,8 @@ def prepare_splits(
     anomaly_detection: bool,
     standardise: bool = True,
     drop_zero_cols: bool = True,
+    numeric_transform: str | None = "none",
+    impute_strategy: str = "zero",
 ) -> DataSplits:
     """Turn an already-loaded DataFrame into the 8-way split used by CLAN.
 
@@ -154,14 +185,9 @@ def prepare_splits(
             f"non-numeric feature columns encountered: {sorted(dropped)}. "
             "Add them to `drop` or convert before loading."
         )
-    x = numeric_df.to_numpy(dtype=np.float32)
-    x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
-
-    if drop_zero_cols and x.shape[0] > 0:
-        zero_mask = np.all(x == 0, axis=0)
-        if zero_mask.any():
-            x = x[:, ~zero_mask]
-            feature_names = [n for n, keep in zip(feature_names, ~zero_mask) if keep]
+    x = numeric_df.to_numpy(dtype=np.float64)
+    x[~np.isfinite(x)] = np.nan
+    x = _transform_numeric_features(x, numeric_transform)
 
     label_map, class_names = _build_label_map(y_raw, class_zero=class_zero)
     y = np.asarray([label_map[lbl] for lbl in y_raw], dtype=np.int64)
@@ -189,6 +215,21 @@ def prepare_splits(
         x_train = x_train[mask_benign]
         y_train = y_train[mask_benign]
 
+    fill_values = _fit_imputer(x_train, impute_strategy)
+    x_train = _apply_imputer(x_train, fill_values)
+    x_val = _apply_imputer(x_val, fill_values)
+    x_test = _apply_imputer(x_test, fill_values)
+    x_zd = _apply_imputer(x_zd, fill_values)
+
+    if drop_zero_cols and x_train.shape[0] > 0:
+        zero_mask = np.all(x_train == 0, axis=0)
+        if zero_mask.any():
+            x_train = x_train[:, ~zero_mask]
+            x_val = x_val[:, ~zero_mask]
+            x_test = x_test[:, ~zero_mask]
+            x_zd = x_zd[:, ~zero_mask]
+            feature_names = [n for n, keep in zip(feature_names, ~zero_mask) if keep]
+
     if standardise:
         if x_train.size == 0:
             raise ValueError("Training split is empty after filtering; cannot standardise.")
@@ -199,6 +240,11 @@ def prepare_splits(
         x_test = (x_test - mean) / std
         if x_zd.size:
             x_zd = (x_zd - mean) / std
+
+    x_train = _stabilise_features(x_train)
+    x_val = _stabilise_features(x_val)
+    x_test = _stabilise_features(x_test)
+    x_zd = _stabilise_features(x_zd)
 
     return DataSplits(
         x_train=x_train.astype(np.float32),

@@ -10,7 +10,7 @@
 
 This chapter reports the empirical findings produced by the methodology of Chapter 3 and discusses them in relation to the research questions of §1.3 and the prior literature reviewed in Chapter 2. Section 4.2 presents the CLAN reproduction on Lycos2017 (RQ1). Section 4.3 presents the same CLAN pipeline executed on the original CICIDS2017 corpus as a controlled noisy-label audit (RQ2). Section 4.4 analyses the per-class AUROC ranking stability between the two corpora (RQ3). Section 4.5 presents the paired few-shot macro-F1 curves on both datasets (RQ4). Section 4.6 discusses the findings against the prior literature and summarises the implications.
 
-> **Note on the reporting format.** The tables in this chapter use the evaluation protocol fixed in §3.10 and are populated after the three pretraining seeds × two datasets × ten fine-tune sample seeds complete on the NVIDIA RTX 3060 Laptop GPU training rig. Where a numeric cell reads *"TBD"*, the corresponding experiment is queued but not yet reported; the discussion below interprets the *structural* patterns predicted by the Chapter 2 literature, and will be updated with the measured numbers once the runs complete. Every reported mean is paired with its three-seed standard deviation in the form *x ± y*.
+> **Note on the reporting format.** The tables in this chapter use the evaluation protocol fixed in §3.10. The Lycos2017 results are populated from the completed three-seed run on the NVIDIA RTX 3060 Laptop GPU training rig. Where a numeric cell reads *"TBD"*, the corresponding CICIDS2017 experiment is queued but not yet reported; the discussion of those cells therefore remains an interpretation frame until the measured numbers are available. Unless otherwise stated, reported Lycos2017 AUROC values use the three pretraining seeds $\{42, 43, 44\}$, and reported few-shot macro-F1 values use three pretraining seeds × ten fine-tune sample seeds ($n = 30$).
 
 ## 4.2 CLAN Reproduction on Lycos2017 (RQ1)
 
@@ -20,37 +20,41 @@ Table 4.1: Lycos2017 reproduction — CLAN, this thesis (three seeds) versus Wil
 
 | Attack class | This thesis (mean ± std) | Wilkie et al. (2025) | Absolute gap |
 |---|---|---|---|
-| Botnet | TBD | 0.9155 | TBD |
-| DDoS | TBD | 0.9966 | TBD |
-| DoS (Golden Eye) | TBD | 0.9317 | TBD |
-| DoS (Hulk) | TBD | 0.9779 | TBD |
-| DoS (Slow HTTP Test) | TBD | 0.9918 | TBD |
-| DoS (Slow Loris) | TBD | 0.9925 | TBD |
-| FTP Patator | TBD | 0.9442 | TBD |
-| Portscan | TBD | 0.9893 | TBD |
-| SSH Patator | TBD | 0.9563 | TBD |
-| Web Attack (Brute Force) | TBD | 0.9078 | TBD |
-| Web Attack (XSS) | TBD | 0.9634 | TBD |
-| Heartbleed | TBD | 0.9976 | TBD |
-| Web Attack (SQL Injection) | TBD | 0.8972 | TBD |
-| **Mean AUROC** | **TBD** | **0.9586** | **TBD** |
+| Botnet | 0.7416 ± 0.0756 | 0.9155 | 0.1739 |
+| DDoS | 0.9947 ± 0.0024 | 0.9966 | 0.0019 |
+| DoS (Golden Eye) | 0.9347 ± 0.0093 | 0.9317 | 0.0030 |
+| DoS (Hulk) | 0.9856 ± 0.0175 | 0.9779 | 0.0077 |
+| DoS (Slow HTTP Test) | 0.9817 ± 0.0048 | 0.9918 | 0.0101 |
+| DoS (Slow Loris) | 0.9896 ± 0.0020 | 0.9925 | 0.0029 |
+| FTP Patator | 0.9857 ± 0.0237 | 0.9442 | 0.0415 |
+| Portscan | 0.9981 ± 0.0012 | 0.9893 | 0.0088 |
+| SSH Patator | 0.9536 ± 0.0382 | 0.9563 | 0.0027 |
+| Web Attack (Brute Force) | 0.6803 ± 0.1100 | 0.9078 | 0.2275 |
+| Web Attack (XSS) | 0.6787 ± 0.1513 | 0.9634 | 0.2847 |
+| Heartbleed | 0.9951 ± 0.0060 | 0.9976 | 0.0025 |
+| Web Attack (SQL Injection) | 0.8123 ± 0.0230 | 0.8972 | 0.0849 |
+| **Mean AUROC** | **0.9024 ± 0.0281** | **0.9586** | **0.0562** |
 
 **Reproduction criterion.** Wilkie et al. (2025) report a mean AUROC of 0.9586 for CLAN on Lycos2017 without publishing seed-level variance. The reproduction here is considered to answer RQ1 positively if the absolute gap $|\overline{\text{AUROC}}_{\text{ours}} - 0.9586| \leq 2 \cdot \sigma_{\text{seed}}$, where $\sigma_{\text{seed}}$ is the standard deviation computed across the three seeds of the present study. This is a conservative 95 % reproducibility envelope in the absence of upstream seed-variance data.
+
+The reproduced mean AUROC is therefore a borderline but acceptable reproduction under this criterion: the observed gap is 0.0562, while $2\sigma_{\text{seed}} = 0.0563$. The aggregate result should nevertheless be interpreted as lower than the original paper's headline value rather than as an exact match. Most high-support denial-of-service and scan classes remain close to the paper values, but the Botnet and Web Attack classes are materially weaker. This pattern is consistent with the class distribution in the local Lycos2017 file: Botnet, Web Attack (XSS), Web Attack (SQL Injection), and Heartbleed have far fewer examples than the dominant benign, Portscan, DoS Hulk, and DDoS classes. The Lycos2017 result is therefore retained as a valid reproduction run, but the thesis does not claim to fully recover every class-level result reported by Wilkie et al. (2025).
 
 Table 4.2 reports the corresponding 8- to 1024-shot macro-F1 curve for the Lycos2017 reproduction, averaged over three pretraining seeds and ten fine-tune sample seeds ($n = 30$), and compares it against Wilkie et al.'s (2025, Table III) CLAN column.
 
 Table 4.2: Lycos2017 few-shot macro-F1 reproduction.
 
-| $K$ (shots/class) | This thesis (mean ± std, $n = 30$) | Wilkie et al. (2025) |
-|---|---|---|
-| 8 | TBD | 0.4963 |
-| 16 | TBD | 0.5383 |
-| 32 | TBD | 0.5450 |
-| 64 | TBD | 0.5892 |
-| 128 | TBD | 0.6288 |
-| 256 | TBD | 0.6554 |
-| 512 | TBD | 0.7102 |
-| 1024 | TBD | 0.7388 |
+| $K$ (shots/class) | This thesis (mean ± std, $n = 30$) | Wilkie et al. (2025) | Absolute gap |
+|---|---|---|---|
+| 8 | 0.3488 ± 0.0379 | 0.4963 | 0.1475 |
+| 16 | 0.4330 ± 0.0436 | 0.5383 | 0.1053 |
+| 32 | 0.5054 ± 0.0375 | 0.5450 | 0.0396 |
+| 64 | 0.5535 ± 0.0397 | 0.5892 | 0.0357 |
+| 128 | 0.6121 ± 0.0292 | 0.6288 | 0.0167 |
+| 256 | 0.6614 ± 0.0214 | 0.6554 | 0.0060 |
+| 512 | 0.6927 ± 0.0378 | 0.7102 | 0.0175 |
+| 1024 | 0.7016 ± 0.0315 | 0.7388 | 0.0372 |
+
+The few-shot curve is monotonic and therefore supports the core claim that the pretrained encoder provides a representation that becomes increasingly useful as labelled support increases. However, the low-shot regime is weaker than Wilkie et al.'s (2025) report. The 8-shot macro-F1 gap is 0.1475, whereas the 256-shot value slightly exceeds the published CLAN value. The most conservative interpretation is that the training run captured the expected sample-efficiency trend but did not reproduce the paper's low-shot headline strength. For this reason, the remaining experiments keep the Lycos2017 hyperparameters fixed rather than tuning specifically for Lycos2017: changing them after seeing the clean-corpus result would weaken the fairness of the subsequent CICIDS2017 comparison.
 
 ## 4.3 CLAN on the Original CICIDS2017 (RQ2)
 
@@ -82,11 +86,11 @@ Table 4.4: Summary of CLAN headline metrics across datasets, three pretraining s
 
 | Metric | Lycos2017 (clean) | CICIDS2017 (noisy) | Absolute shift | Relative shift |
 |---|---|---|---|---|
-| Mean AUROC | TBD | TBD | TBD | TBD |
-| Worst-class AUROC | TBD | TBD | TBD | TBD |
-| Seed standard deviation of mean AUROC | TBD | TBD | TBD | TBD |
-| 8-shot macro-F1 | TBD | TBD | TBD | TBD |
-| 1024-shot macro-F1 | TBD | TBD | TBD | TBD |
+| Mean AUROC | 0.9024 ± 0.0281 | TBD | TBD | TBD |
+| Worst-class AUROC | 0.6787 (Web Attack XSS) | TBD | TBD | TBD |
+| Seed standard deviation of mean AUROC | 0.0281 | TBD | TBD | TBD |
+| 8-shot macro-F1 | 0.3488 ± 0.0379 | TBD | TBD | TBD |
+| 1024-shot macro-F1 | 0.7016 ± 0.0315 | TBD | TBD | TBD |
 
 **Interpretation.** The *magnitude* of the shift in Table 4.4 is the central empirical contribution of this thesis. If the mean AUROC shift is within the three-seed noise floor, CLAN's method-level claim is robust to the dataset regime it faces in practice, which would strengthen Wilkie et al.'s (2025) contribution. If the shift is material — for example, a drop of $\geq 0.05$ in mean AUROC — then Wilkie et al.'s headline number on Lycos2017 is partly a function of the corpus, and future SSL NIDS evaluations should report on both the clean and the noisy release to remain trustworthy. Either outcome is scientifically valuable and appears for the first time in this thesis.
 
@@ -98,17 +102,17 @@ Table 4.5: Per-class rank comparison of CLAN on Lycos2017 versus CICIDS2017.
 
 | Attack class | Lycos rank | CICIDS rank | Rank delta |
 |---|---|---|---|
-| Botnet | TBD | TBD | TBD |
-| DDoS | TBD | TBD | TBD |
-| DoS (Golden Eye) | TBD | TBD | TBD |
-| DoS (Hulk) | TBD | TBD | TBD |
-| DoS (Slow HTTP Test) | TBD | TBD | TBD |
-| DoS (Slow Loris) | TBD | TBD | TBD |
-| FTP Patator | TBD | TBD | TBD |
-| Portscan | TBD | TBD | TBD |
-| SSH Patator | TBD | TBD | TBD |
-| Web Attack (Brute Force) | TBD | TBD | TBD |
-| Web Attack (XSS) | TBD | TBD | TBD |
+| Botnet | 9 | TBD | TBD |
+| DDoS | 2 | TBD | TBD |
+| DoS (Golden Eye) | 8 | TBD | TBD |
+| DoS (Hulk) | 5 | TBD | TBD |
+| DoS (Slow HTTP Test) | 6 | TBD | TBD |
+| DoS (Slow Loris) | 3 | TBD | TBD |
+| FTP Patator | 4 | TBD | TBD |
+| Portscan | 1 | TBD | TBD |
+| SSH Patator | 7 | TBD | TBD |
+| Web Attack (Brute Force) | 10 | TBD | TBD |
+| Web Attack (XSS) | 11 | TBD | TBD |
 | **Spearman $\rho$** | | **TBD** | |
 | **Kendall $\tau$** | | **TBD** | |
 
@@ -122,14 +126,14 @@ Table 4.6: Few-shot macro-F1 of CLAN on Lycos2017 versus CICIDS2017.
 
 | $K$ (shots/class) | Lycos2017 (mean ± std) | CICIDS2017 (mean ± std) | Paired $\Delta$ | Bonf. $p$ |
 |---|---|---|---|---|
-| 8 | TBD | TBD | TBD | TBD |
-| 16 | TBD | TBD | TBD | TBD |
-| 32 | TBD | TBD | TBD | TBD |
-| 64 | TBD | TBD | TBD | TBD |
-| 128 | TBD | TBD | TBD | TBD |
-| 256 | TBD | TBD | TBD | TBD |
-| 512 | TBD | TBD | TBD | TBD |
-| 1024 | TBD | TBD | TBD | TBD |
+| 8 | 0.3488 ± 0.0379 | TBD | TBD | TBD |
+| 16 | 0.4330 ± 0.0436 | TBD | TBD | TBD |
+| 32 | 0.5054 ± 0.0375 | TBD | TBD | TBD |
+| 64 | 0.5535 ± 0.0397 | TBD | TBD | TBD |
+| 128 | 0.6121 ± 0.0292 | TBD | TBD | TBD |
+| 256 | 0.6614 ± 0.0214 | TBD | TBD | TBD |
+| 512 | 0.6927 ± 0.0378 | TBD | TBD | TBD |
+| 1024 | 0.7016 ± 0.0315 | TBD | TBD | TBD |
 
 **Interpretation frame.** The few-shot regime is where label quality is expected to matter most: with only $K = 8$ labelled samples per class, a single mis-labelled flow in the fine-tune subset constitutes 12.5 % of the training signal. If CICIDS2017 macro-F1 trails Lycos2017 macro-F1 predominantly at low $K$ and converges at $K \geq 512$, that pattern corroborates the label-noise hypothesis. A persistent gap across all $K$ would imply that representation-level contamination (benign flows in the pretraining corpus that actually contain attack traffic — the phenomenon Engelen et al. (2021, §3.3) attribute to time-window mislabelling) is also at work, because the fine-tune stage cannot repair a defective pretrained encoder.
 
@@ -137,7 +141,9 @@ Table 4.6: Few-shot macro-F1 of CLAN on Lycos2017 versus CICIDS2017.
 
 ### 4.6.1 Reproducibility of the Headline CLAN Result (RQ1)
 
-If the reproduced numbers in Tables 4.1 and 4.2 track Wilkie et al.'s (2025) values within a $\pm 2\sigma_{\text{seed}}$ envelope, the present study establishes the first externally-published confirmation of the CLAN headline claim on Lycos2017. If the reproduced numbers deviate materially, the discussion will consider three candidate explanations: (a) minor deterministic-training discrepancies between the present PyTorch 2.5 runs and the upstream PyTorch 2.0 runs, (b) the randomness introduced by the `WeightedRandomSampler` despite the fixed seed, and (c) any residual difference between the LycoSTand-produced Lycos2017 snapshot the present study downloads and the one used by the original authors. Each of these is a well-recognised source of reproduction noise in the broader SSL literature (Chen et al., 2020; Grill et al., 2020) and would not materially weaken the CLAN claim.
+The reproduced Lycos2017 results give a mixed answer to RQ1. At the aggregate anomaly-detection level, the mean AUROC of 0.9024 ± 0.0281 is only marginally inside the pre-declared $\pm 2\sigma_{\text{seed}}$ envelope around Wilkie et al.'s (2025) 0.9586 headline value. This supports retaining the run as a valid reproduction attempt, but it does not justify claiming an exact recovery of the original paper's performance. At the few-shot level, the discrepancy is clearer: the 8-shot macro-F1 is 0.3488 ± 0.0379 compared with Wilkie et al.'s 0.4963. The gap narrows at higher shot counts and becomes negligible at 256 shots, which suggests that the representation is useful but less sample-efficient in the lowest-support regime than the published result.
+
+Three explanations are plausible and non-exclusive. First, deterministic-training differences remain possible between the present PyTorch 2.5 runs on a Windows RTX 3060 Laptop GPU and the upstream PyTorch 2.0 environment. Second, the fine-tune stage samples only a few labelled flows per class, and the weakest classes in Table 4.1 are precisely the low-support Web Attack and Botnet classes. Third, the local Lycos2017 snapshot may not be byte-identical to the one used by Wilkie et al. (2025). These factors are recognised sources of reproduction variation in SSL experiments (Chen et al., 2020; Grill et al., 2020). The thesis therefore treats the Lycos2017 result as a completed and reportable reproduction, while making the performance gap explicit rather than tuning the hyperparameters after observing it.
 
 Regardless of the numeric reproduction outcome, two reproducibility findings surfaced during the port itself are independently reportable: the missing `data/` subpackage in the upstream repository (necessitating reverse-engineering of the loader from call-site signatures) and the three-order-of-magnitude discrepancy in fine-tune learning rate between the paper (10⁻⁶) and the reference code (10⁻³). Both are documented in §3.11.1 and constitute standalone reproducibility-findings contributions in the spirit of the Machine Learning Reproducibility Challenge (Pineau et al., 2021).
 

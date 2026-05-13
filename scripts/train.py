@@ -79,6 +79,10 @@ def train_one_epoch(
                 z_cat = model(x_cat)
                 z, z_aug = torch.split(z_cat, [x.size(0), x_aug.size(0)], dim=0)
                 loss, frac_pos = criterion(z, z_aug)
+            if not torch.isfinite(loss):
+                raise FloatingPointError(
+                    "non-finite CLAN pretraining loss; check input scaling or disable AMP"
+                )
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
@@ -87,6 +91,10 @@ def train_one_epoch(
             z_cat = model(x_cat)
             z, z_aug = torch.split(z_cat, [x.size(0), x_aug.size(0)], dim=0)
             loss, frac_pos = criterion(z, z_aug)
+            if not torch.isfinite(loss):
+                raise FloatingPointError(
+                    "non-finite CLAN pretraining loss; check input scaling"
+                )
             loss.backward()
             optimizer.step()
 

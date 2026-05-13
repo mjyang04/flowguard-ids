@@ -138,8 +138,21 @@ def test_get_data_cicids_handles_inf_values(tmp_path: Path) -> None:
     _write_synthetic_cicids_csv(csv)
     splits = get_data_cicids(csv, sample_thres=10, split_seed=42, anomaly_detection=False)
 
-    # Inf was inserted into flow_bytes_per_s for attack row 0; should be
-    # nan_to_num'd to 0 before standardisation.
+    # Inf was inserted into flow_bytes_per_s for attack row 0; the loader
+    # should treat it as missing and still return finite model inputs.
+    assert np.isfinite(splits.x_train).all()
+    assert np.isfinite(splits.x_test).all()
+
+
+def test_get_data_cicids_log_transforms_extreme_numeric_values(tmp_path: Path) -> None:
+    csv = tmp_path / "cic.csv"
+    _write_synthetic_cicids_csv(csv)
+    df = pd.read_csv(csv)
+    df.loc[0, " Flow Duration"] = 1.0e30
+    df.to_csv(csv, index=False, encoding="utf-8")
+
+    splits = get_data_cicids(csv, sample_thres=10, split_seed=42, anomaly_detection=False)
+
     assert np.isfinite(splits.x_train).all()
     assert np.isfinite(splits.x_test).all()
 

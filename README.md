@@ -50,8 +50,7 @@ flowguard-ids/
 │   ├── eval.py            # Centroid-based AUROC evaluation
 │   ├── finetune.py        # Single few-shot fine-tune run
 │   ├── finetune_sweep.py  # Paper-style few-shot sweep
-│   ├── run_experiment.py  # Cross-platform Lycos/CICIDS driver
-│   └── run_experiment.sh  # Lycos/CICIDS driver
+│   └── run_experiment.py  # Cross-platform Lycos/CICIDS driver
 ├── tests/                 # Synthetic-fixture unit/contract tests
 └── docs/thesis/           # FYP thesis chapters and template
 ```
