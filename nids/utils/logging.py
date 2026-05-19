@@ -3,6 +3,7 @@ import sys
 
 
 def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
+    """Return a stdout logger configured once for the given module name."""
     logger = logging.getLogger(name)
     if logger.handlers:
         return logger

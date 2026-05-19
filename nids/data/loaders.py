@@ -28,6 +28,7 @@ from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
 
 
 def _inverse_frequency_weights(y: np.ndarray) -> np.ndarray:
+    """Return one sampler weight per label using inverse class frequency."""
     classes, counts = np.unique(y, return_counts=True)
     class_to_weight = {c: 1.0 / n for c, n in zip(classes, counts)}
     return np.asarray([class_to_weight[int(c)] for c in y], dtype=np.float64)
@@ -44,7 +45,11 @@ def tabular_dl(
     num_workers: int = 0,
     pin_memory: bool = False,
 ) -> DataLoader:
-    """Wrap ``(x, y)`` into a (optionally balanced) ``DataLoader``."""
+    """Wrap ``(x, y)`` into an optionally balanced tabular ``DataLoader``.
+
+    When balancing is enabled and more than one class is present, the returned
+    loader uses replacement sampling so each class contributes similar weight.
+    """
     if x.shape[0] != y.shape[0]:
         raise ValueError(f"x and y length mismatch: {x.shape[0]} vs {y.shape[0]}")
 

@@ -31,6 +31,7 @@ logger = get_logger(__name__)
 
 
 def resolve_device(preference: str) -> torch.device:
+    """Resolve ``auto`` to CUDA when available, otherwise return the requested device."""
     if preference == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(preference)
@@ -38,6 +39,7 @@ def resolve_device(preference: str) -> torch.device:
 
 @torch.no_grad()
 def embed_all(model, x: np.ndarray, device: torch.device, chunk_size: int = 1024) -> torch.Tensor:
+    """Embed a full numpy feature matrix in device-sized chunks."""
     model.eval()
     x_t = torch.as_tensor(x, dtype=torch.float32)
     out: list[torch.Tensor] = []
@@ -49,6 +51,7 @@ def embed_all(model, x: np.ndarray, device: torch.device, chunk_size: int = 1024
 
 
 def main() -> None:
+    """Load a pretrained encoder and write centroid-AUROC evaluation output."""
     parser = argparse.ArgumentParser("CLAN evaluation")
     parser.add_argument("--config", type=str, default="configs/lycos.yaml")
     parser.add_argument("--seed", type=int, default=None)

@@ -27,6 +27,7 @@ from nids.training.distance import cosdist, edist
 
 
 def _resolve_distance(name: str) -> Callable[..., Tensor]:
+    """Map a configured distance metric name to its tensor implementation."""
     if name == "cosine":
         return cosdist
     if name == "euclidean":
@@ -80,6 +81,7 @@ class CLANLoss(nn.Module):
         distance_metric: str = "cosine",
         eps: float = 1e-6,
     ) -> None:
+        """Store CLAN loss hyperparameters and resolve the distance function."""
         super().__init__()
         if not 0.0 <= loss_alpha <= 1.0:
             raise ValueError(f"loss_alpha must be in [0, 1]; got {loss_alpha}")
@@ -91,6 +93,7 @@ class CLANLoss(nn.Module):
         self._distance_fn = _resolve_distance(distance_metric)
 
     def forward(self, x: Tensor, x_aug: Tensor) -> tuple[Tensor, Tensor]:
+        """Compute CLAN loss and active negative-pair fraction for a batch."""
         return clan_loss(  # type: ignore[return-value]
             z=x,
             z_aug=x_aug,

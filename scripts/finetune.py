@@ -46,12 +46,14 @@ logger = get_logger(__name__)
 
 
 def resolve_device(preference: str) -> torch.device:
+    """Resolve ``auto`` to CUDA when available, otherwise return the requested device."""
     if preference == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(preference)
 
 
 def finetune_one_epoch(loader, model, criterion, optimizer, epoch, device):
+    """Run one supervised fine-tuning epoch and return average CE loss."""
     model.train()
     losses = AverageMeter()
     start = time.time()
@@ -136,6 +138,7 @@ def run_finetune(
 
 
 def main() -> None:
+    """Parse CLI arguments and run one few-shot fine-tune evaluation."""
     parser = argparse.ArgumentParser("CLAN fine-tune (single run)")
     parser.add_argument("--config", type=str, default="configs/lycos.yaml")
     parser.add_argument("--shots", type=int, required=True)

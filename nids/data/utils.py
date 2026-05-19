@@ -24,12 +24,14 @@ import numpy as np
 
 
 def _rng(seed: Optional[int]) -> np.random.Generator:
+    """Create the local random generator used by few-shot sampling."""
     return np.random.default_rng(seed)
 
 
 def _sample_without_replacement(
     indices: np.ndarray, n: int, rng: np.random.Generator
 ) -> np.ndarray:
+    """Sample row indices, falling back to replacement when the pool is small."""
     if n <= 0 or indices.size == 0:
         return np.empty((0,), dtype=indices.dtype)
     replace = n > indices.size
@@ -45,7 +47,11 @@ def sample_data(
     sample_seed: Optional[int] = None,
     benign_class: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Carve a balanced subset for few-shot fine-tuning."""
+    """Carve a balanced benign-vs-attack subset for few-shot fine-tuning.
+
+    Benign rows come from class 0 by default. Requested attack rows are spread
+    as evenly as possible across all non-benign classes present in ``y_train``.
+    """
     if x_train.shape[0] != y_train.shape[0]:
         raise ValueError(f"x/y length mismatch: {x_train.shape[0]} vs {y_train.shape[0]}")
 

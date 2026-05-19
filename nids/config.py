@@ -136,6 +136,7 @@ def _from_dict(cls: type[Any], data: dict[str, Any]) -> Any:
 
 
 def _is_tuple_type(annotation: Any) -> bool:
+    """Return True when a dataclass field annotation should load as a tuple."""
     if annotation is tuple:
         return True
     origin = get_origin(annotation)
@@ -148,6 +149,11 @@ def _is_tuple_type(annotation: Any) -> bool:
 
 
 def load_config(config_path: str | Path | None = None) -> ExperimentConfig:
+    """Load an experiment config from YAML or return built-in defaults.
+
+    Missing YAML sections fall back to the frozen dataclass defaults, which
+    keeps dataset-specific config files small and focused on overrides.
+    """
     if config_path is None:
         return ExperimentConfig()
 
@@ -164,10 +170,12 @@ def load_config(config_path: str | Path | None = None) -> ExperimentConfig:
 
 
 def save_config(config: ExperimentConfig, output_path: str | Path) -> None:
+    """Serialize a resolved experiment config to a YAML file."""
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     def _to_dict(obj: Any) -> Any:
+        """Convert nested frozen dataclasses and tuples into YAML-safe values."""
         if hasattr(obj, "__dataclass_fields__"):
             return {k: _to_dict(v) for k, v in obj.__dict__.items()}
         if isinstance(obj, tuple):

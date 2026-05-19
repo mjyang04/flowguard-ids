@@ -25,6 +25,7 @@ from sklearn.metrics import (
 
 
 def _to_numpy(x: object) -> np.ndarray:
+    """Convert numpy-like or torch-like objects into a CPU numpy array."""
     if isinstance(x, np.ndarray):
         return x
     if hasattr(x, "detach") and hasattr(x, "cpu"):  # torch.Tensor

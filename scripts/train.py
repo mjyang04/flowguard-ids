@@ -47,6 +47,7 @@ logger = get_logger(__name__)
 
 
 def resolve_device(preference: str) -> torch.device:
+    """Resolve ``auto`` to CUDA when available, otherwise return the requested device."""
     if preference == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(preference)
@@ -56,6 +57,12 @@ def train_one_epoch(
     loader, model, augmentation, criterion, optimizer, scheduler,
     epoch, cfg, device, scaler,
 ):
+    """Run one CLAN pretraining epoch and return the average loss.
+
+    The loop creates augmented negative views on-device, supports optional CUDA
+    AMP, updates the learning-rate schedule per batch, and raises on non-finite
+    losses before checkpoint state can be written.
+    """
     model.train()
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -117,6 +124,7 @@ def train_one_epoch(
 
 
 def main() -> None:
+    """Parse CLI arguments and run the full CLAN pretraining workflow."""
     parser = argparse.ArgumentParser("CLAN pretraining")
     parser.add_argument("--config", type=str, default="configs/lycos.yaml")
     parser.add_argument("--seed", type=int, default=None, help="override cfg.runtime.seed")

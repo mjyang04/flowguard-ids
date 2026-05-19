@@ -35,6 +35,11 @@ class Residual(nn.Module):
         out_dim: Optional[int] = None,
         layer_scale: Optional[float] = None,
     ) -> None:
+        """Initialise a residual wrapper around ``layer``.
+
+        ``out_dim`` controls whether the skip path stays as identity or learns
+        a linear resize. ``layer_scale`` optionally scales the residual branch.
+        """
         super().__init__()
         self.layer = layer
         out_dim = out_dim or in_dim
@@ -49,6 +54,7 @@ class Residual(nn.Module):
         self.resize = nn.Identity() if in_dim == out_dim else nn.Linear(in_dim, out_dim)
 
     def forward(self, x: Tensor) -> Tensor:
+        """Apply the wrapped layer and add the resized skip connection."""
         return (self.layer(x) * self.layer_scale) + self.resize(x)
 
 
@@ -67,6 +73,7 @@ class DenseBlock(nn.Module):
         layernorm: Optional[Callable[[int], nn.Module]] = None,
         bias: bool = True,
     ) -> None:
+        """Build one dense MLP block with optional residual wrapping."""
         super().__init__()
         out_dim = out_dim or in_dim
         norm_layer = layernorm or nn.Identity
@@ -84,6 +91,7 @@ class DenseBlock(nn.Module):
         self.block = block
 
     def forward(self, x: Tensor) -> Tensor:
+        """Transform an input batch through this dense block."""
         return self.block(x)
 
 
@@ -159,6 +167,7 @@ class ContrastiveMLP(nn.Module):
         project_to_sphere: bool = False,
         final_layer_activation: Optional[Callable[[], nn.Module]] = nn.ReLU,
     ) -> None:
+        """Create the encoder, projection head, and optional classifier probe."""
         super().__init__()
         self.proj_to_sphere = project_to_sphere
 
@@ -176,21 +185,26 @@ class ContrastiveMLP(nn.Module):
         self.probe = nn.Identity() if n_classes is None else nn.Linear(last_hidden, n_classes)
 
     def forward_features(self, x: Tensor) -> Tensor:
+        """Return encoder features before projection or classification heads."""
         return self.mlp(x)
 
     def forward_cls(self, x: Tensor) -> Tensor:
+        """Apply the classifier probe to an already-computed feature tensor."""
         return self.probe(x)
 
     def forward_finetune(self, x: Tensor) -> Tensor:
+        """Return class logits for raw inputs during downstream fine-tuning."""
         return self.probe(self.forward_features(x))
 
     def forward_proj(self, x: Tensor) -> Tensor:
+        """Project feature tensors into the contrastive embedding space."""
         z = self.proj(x)
         if self.proj_to_sphere:
             z = F.normalize(z, dim=-1)
         return z
 
     def forward(self, x: Tensor) -> Tensor:
+        """Encode raw inputs and return projected CLAN embeddings."""
         return self.forward_proj(self.forward_features(x))
 
 

@@ -50,6 +50,7 @@ class StageFailure(RuntimeError):
     """Raised when one child training/evaluation command fails."""
 
     def __init__(self, cmd: list[str], log_path: Path, returncode: int) -> None:
+        """Capture the failed command, its log path, and process exit code."""
         self.cmd = cmd
         self.log_path = log_path
         self.returncode = returncode
@@ -61,6 +62,7 @@ class StageFailure(RuntimeError):
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse cross-dataset experiment driver CLI arguments."""
     parser = argparse.ArgumentParser("Run CLAN experiments across datasets/seeds")
     parser.add_argument(
         "--datasets",
@@ -127,6 +129,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def config_path(config_dir: str, dataset: str) -> Path:
+    """Return the dataset config path, raising if it does not exist."""
     path = ROOT / config_dir / f"{dataset}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
@@ -134,6 +137,7 @@ def config_path(config_dir: str, dataset: str) -> Path:
 
 
 def maybe_relative(path: Path) -> str:
+    """Render a path relative to the repository root when possible."""
     try:
         return str(path.relative_to(ROOT))
     except ValueError:
@@ -141,6 +145,7 @@ def maybe_relative(path: Path) -> str:
 
 
 def dataset_override(args: argparse.Namespace, dataset: str) -> str | None:
+    """Return the CLI-provided dataset source override for one dataset."""
     if dataset == "lycos":
         return args.lycos_csv
     if dataset == "cicids":
@@ -149,6 +154,7 @@ def dataset_override(args: argparse.Namespace, dataset: str) -> str | None:
 
 
 def effective_config_path(args: argparse.Namespace, dataset: str, log_dir: Path) -> Path:
+    """Return the base config or a temporary config with source-path overrides."""
     base_config = config_path(args.config_dir, dataset)
     override = dataset_override(args, dataset)
     if not override:
@@ -165,6 +171,7 @@ def effective_config_path(args: argparse.Namespace, dataset: str, log_dir: Path)
 
 
 def artifact_dir(config: Path, seed: int) -> Path:
+    """Resolve the artifact directory implied by a config file and seed."""
     sys.path.insert(0, str(ROOT))
     from nids.config import load_config
 
@@ -173,6 +180,7 @@ def artifact_dir(config: Path, seed: int) -> Path:
 
 
 def output_for_stage(config: Path, seed: int, stage: str) -> Path:
+    """Return the file that indicates completion for a pipeline stage."""
     run_dir = artifact_dir(config, seed)
     if stage == "train":
         return run_dir / "clan.pt.tar"
@@ -184,6 +192,7 @@ def output_for_stage(config: Path, seed: int, stage: str) -> Path:
 
 
 def command_for_stage(python: str, config: Path, seed: int, stage: str) -> list[str]:
+    """Build the child Python command for one dataset, seed, and stage."""
     config_arg = maybe_relative(config)
     if stage == "train":
         return [python, "scripts/train.py", "--config", config_arg, "--seed", str(seed)]
@@ -202,6 +211,7 @@ def command_for_stage(python: str, config: Path, seed: int, stage: str) -> list[
 
 
 def tail_text(path: Path, lines: int = 60) -> str:
+    """Return the last ``lines`` of a text log, or an empty string if absent."""
     if not path.exists():
         return ""
     content = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -209,6 +219,7 @@ def tail_text(path: Path, lines: int = 60) -> str:
 
 
 def run_command(cmd: list[str], log_path: Path, *, dry_run: bool) -> None:
+    """Run one child command while streaming stdout and stderr to a log file."""
     printable = " ".join(cmd)
     if dry_run:
         print(f"[dry-run] {printable}")
@@ -242,6 +253,7 @@ def run_seed_pipeline(
     skip_existing: bool,
     dry_run: bool,
 ) -> None:
+    """Run the requested stages sequentially for a single dataset/seed pair."""
     log_path = log_dir / f"{dataset}_seed{seed}.log"
     print(f"[start] {dataset} seed={seed} stages={','.join(stages)} log={log_path}")
     for stage in stages:
@@ -258,6 +270,7 @@ def run_seed_pipeline(
 
 
 def run_dataset(args: argparse.Namespace, dataset: str) -> None:
+    """Run all requested seed pipelines for one resolved dataset selector."""
     log_dir = ROOT / args.log_dir
     config = effective_config_path(args, dataset, log_dir)
     max_workers = max(1, min(args.parallel_seeds, len(args.seeds)))
@@ -302,6 +315,7 @@ def run_dataset(args: argparse.Namespace, dataset: str) -> None:
 
 
 def main() -> None:
+    """Coordinate requested dataset runs and print helpful failure log tails."""
     args = parse_args()
     datasets = DATASET_ALIASES[args.datasets]
     try:

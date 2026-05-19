@@ -16,6 +16,7 @@ import torch.nn as nn
 
 
 def _ensure_extension(path: str | Path, extension: str) -> Path:
+    """Return ``path`` with the checkpoint extension appended when missing."""
     p = Path(path)
     if not str(p).endswith(extension):
         p = Path(str(p) + extension)

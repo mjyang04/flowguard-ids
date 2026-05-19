@@ -56,6 +56,7 @@ class DataSplits:
     ) -> tuple[
         np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
     ]:
+        """Return splits in the positional order expected by upstream CLAN."""
         return (
             self.x_train,
             self.y_train,
@@ -69,6 +70,7 @@ class DataSplits:
 
 
 def _coerce_label(value: object) -> str:
+    """Normalise a raw label value into the lowercase string key used internally."""
     if pd.isna(value):
         return "unknown"
     return str(value).strip().lower()
@@ -77,6 +79,7 @@ def _coerce_label(value: object) -> str:
 def _build_label_map(
     labels: np.ndarray, class_zero: str
 ) -> tuple[dict[str, int], list[str]]:
+    """Create a deterministic class-id map with ``class_zero`` fixed at id 0."""
     unique = sorted({lbl for lbl in labels.tolist()})
     if class_zero not in unique:
         raise ValueError(
@@ -96,6 +99,7 @@ def _build_label_map(
 def _split_zero_day(
     x: np.ndarray, y: np.ndarray, sample_threshold: int, benign_class: int = 0
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Separate rare attack classes into the zero-day holdout split."""
     counts = np.bincount(y)
     rare_classes = {
         c for c, n in enumerate(counts) if c != benign_class and n < sample_threshold
@@ -110,6 +114,7 @@ def _split_zero_day(
 
 
 def _fit_standardiser(x_train: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Estimate train-split mean and nonzero standard deviation per feature."""
     # ddof=0 to match sklearn.preprocessing.StandardScaler (population std).
     mean = x_train.mean(axis=0)
     std = x_train.std(axis=0, ddof=0)
@@ -123,6 +128,7 @@ def _stabilise_features(x: np.ndarray) -> np.ndarray:
 
 
 def _transform_numeric_features(x: np.ndarray, transform: str | None) -> np.ndarray:
+    """Apply the configured numeric transform before split-level imputation."""
     if transform is None or transform == "none":
         return x
     if transform == "signed_log1p":
@@ -131,6 +137,7 @@ def _transform_numeric_features(x: np.ndarray, transform: str | None) -> np.ndar
 
 
 def _fit_imputer(x_train: np.ndarray, strategy: str) -> np.ndarray:
+    """Compute per-feature fill values from the training split only."""
     if strategy == "zero":
         return np.zeros((x_train.shape[1],), dtype=np.float64)
     if strategy == "median":
@@ -142,6 +149,7 @@ def _fit_imputer(x_train: np.ndarray, strategy: str) -> np.ndarray:
 
 
 def _apply_imputer(x: np.ndarray, fill: np.ndarray) -> np.ndarray:
+    """Replace NaN and infinite feature values with precomputed fill values."""
     return np.where(np.isfinite(x), x, fill)
 
 

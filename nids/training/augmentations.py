@@ -37,6 +37,7 @@ class Jitter(nn.Module):
     def __init__(
         self, variance: float, mean: float = 0.0, p_feature: float = 1.0, p_sample: float = 1.0
     ) -> None:
+        """Store Gaussian noise parameters and masking probabilities."""
         super().__init__()
         self.variance = variance
         self.mean = mean
@@ -45,6 +46,7 @@ class Jitter(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
+        """Return ``x`` with Gaussian noise added at masked positions."""
         mask = _aug_matrix(x, self.p_feature, self.p_sample)
         noise = (self.variance ** 0.5) * torch.randn_like(x) + self.mean
         return x + noise * mask
@@ -54,12 +56,14 @@ class ZeroOutNoise(nn.Module):
     """Randomly zero out a fraction of features."""
 
     def __init__(self, p_feature: float, p_sample: float = 1.0) -> None:
+        """Store probabilities for element-wise zero-out masking."""
         super().__init__()
         self.p_feature = p_feature
         self.p_sample = p_sample
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
+        """Return ``x`` with selected feature values replaced by zero."""
         mask = _aug_matrix(x, self.p_feature, self.p_sample)
         return x * (1.0 - mask)
 
@@ -70,6 +74,7 @@ class GaussianResample(nn.Module):
     def __init__(
         self, mean: float, variance: float, p_feature: float, p_sample: float = 1.0
     ) -> None:
+        """Store Gaussian replacement parameters and masking probabilities."""
         super().__init__()
         self.mean = mean
         self.variance = variance
@@ -78,6 +83,7 @@ class GaussianResample(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
+        """Return ``x`` with selected features replaced by Gaussian samples."""
         mask = _aug_matrix(x, self.p_feature, self.p_sample)
         noise = (self.variance ** 0.5) * torch.randn_like(x) + self.mean
         return x * (1.0 - mask) + noise * mask
@@ -90,6 +96,7 @@ class UniformResample(nn.Module):
     def __init__(
         self, max_val: float, mean: float, p_feature: float, p_sample: float = 1.0
     ) -> None:
+        """Store uniform replacement range and masking probabilities."""
         super().__init__()
         self.max_val = max_val
         self.mean = mean
@@ -98,6 +105,7 @@ class UniformResample(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
+        """Return ``x`` with selected features replaced by uniform samples."""
         mask = _aug_matrix(x, self.p_feature, self.p_sample)
         noise = torch.empty_like(x).uniform_(-self.max_val, self.max_val) + self.mean
         return x * (1.0 - mask) + noise * mask
@@ -107,12 +115,14 @@ class FeatureShuffle(nn.Module):
     """Randomly permute the feature axis for selected positions."""
 
     def __init__(self, p_feature: float, p_sample: float = 1.0) -> None:
+        """Store probabilities for feature-shuffle masking."""
         super().__init__()
         self.p_feature = p_feature
         self.p_sample = p_sample
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
+        """Return ``x`` with selected positions filled from shuffled features."""
         mask = _aug_matrix(x, self.p_feature, self.p_sample)
         perm = torch.randperm(x.size(-1), device=x.device)
         x_shuffled = x[:, perm]

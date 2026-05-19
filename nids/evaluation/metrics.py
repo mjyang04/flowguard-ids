@@ -27,6 +27,7 @@ def _expected_calibration_error(
 
 
 def _coerce_binary_scores(y_score: np.ndarray | None) -> np.ndarray | None:
+    """Convert optional score arrays into a one-dimensional attack score."""
     if y_score is None:
         return None
 
@@ -46,6 +47,7 @@ def _compute_binary_score_metrics(
     y_score: np.ndarray | None,
     benign_class: int,
 ) -> dict:
+    """Compute threshold-free and threshold-selected binary IDS metrics."""
     scores = _coerce_binary_scores(y_score)
     if scores is None or len(scores) != len(y_true):
         return {}
@@ -102,6 +104,7 @@ def _compute_binary_score_metrics(
 
     # Best recall under FAR constraint
     def _best_under_far(max_far: float) -> tuple[float, float]:
+        """Pick the highest recall threshold under a false-alarm-rate cap."""
         eligible = far <= max_far + 1e-12
         if not eligible.any():
             return 0.0, 1.0
@@ -132,6 +135,12 @@ def compute_nids_metrics(
     benign_class: int = 0,
     y_score: np.ndarray | None = None,
 ) -> dict:
+    """Compute classification and optional anomaly-score metrics for NIDS.
+
+    ``y_pred`` supplies discrete class predictions. ``y_score`` may supply a
+    binary attack score; when absent or incompatible, score-only metrics are
+    omitted from the returned dictionary.
+    """
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
 

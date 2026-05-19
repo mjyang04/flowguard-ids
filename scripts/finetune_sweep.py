@@ -36,6 +36,7 @@ logger = get_logger(__name__)
 
 
 def main() -> None:
+    """Run the configured shot-count and sample-seed fine-tuning sweep."""
     parser = argparse.ArgumentParser("CLAN fine-tune sweep (paper protocol)")
     parser.add_argument("--config", type=str, default="configs/lycos.yaml")
     parser.add_argument("--pretrain-seed", type=int, default=42)

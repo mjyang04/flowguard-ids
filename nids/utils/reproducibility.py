@@ -6,6 +6,7 @@ import torch
 
 
 def seed_everything(seed: int = 42) -> None:
+    """Seed Python, NumPy, PyTorch, and cuDNN settings for repeatable runs."""
     random.seed(seed)
     np.random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
